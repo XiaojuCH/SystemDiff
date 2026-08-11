@@ -50,6 +50,8 @@ A Snapshot is an observed state at a point in time. It records document/schema v
 
 Snapshots do not claim to be atomic. Coverage and concurrent-change diagnostics are evidence needed to interpret a later diff.
 
+Snapshot files are untrusted input. The CLI enforces a fixed 64 MiB file ceiling with metadata preflight and a bounded read before handing bytes to core. Core then inspects `document_type` and `schema_version` before constructing the supported v1 wire type. This is an intentionally small synchronous boundary, not a streaming parser or general resource-policy framework.
+
 ### Collector
 
 A Collector has a stable ID, version, description, privilege expectations, and synchronous `collect` operation. Synchronous collection matches the blocking Win32/COM APIs in the MVP and avoids introducing an async runtime before concurrency is required.
@@ -137,6 +139,7 @@ Important choices were checked on 2026-08-11. Re-evaluate them when introduced o
 | --- | --- | --- |
 | Rust/Cargo | Stable toolchain; Rust 2024 workspace resolver | Accepted for shared core, memory safety, native distribution, and strong test tooling |
 | `serde` / `serde_json` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/serde-rs/serde) | Accepted for explicit versioned JSON wire types |
+| `time` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/time-rs/time) | Accepted in `systemdiff-core` with only the parsing feature for standards-based RFC 3339 validation; clock, local-offset, formatting, and serde features remain disabled |
 | `windows-rs` | Microsoft-maintained and active; Apache-2.0 OR MIT; [official repository](https://github.com/microsoft/windows-rs) | Planned for collectors; enable only required API features and prefer typed bindings |
 | `clap` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/clap-rs/clap) | Accepted at the CLI boundary only |
 | Tauri 2 | Active; Apache-2.0 OR MIT; requires C++ Build Tools and WebView2 on Windows; [prerequisites](https://v2.tauri.app/start/prerequisites/) | Proposed for v0.2; excluded from v0.1 build until a security-focused spike |

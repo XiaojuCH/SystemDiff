@@ -4,10 +4,41 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, UtcOffset};
 
 pub const SNAPSHOT_DOCUMENT_TYPE: &str = "systemdiff.snapshot";
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 pub const REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES: u64 = 4_096;
+
+#[derive(Debug, Deserialize)]
+struct SnapshotDocumentHeader {
+    document_type: String,
+    schema_version: u32,
+}
+
+/// Routes a bounded JSON document to a supported Snapshot wire type.
+///
+/// The caller owns transport-specific resource limits. This function inspects
+/// `document_type` and `schema_version` before constructing the full v1
+/// [`Snapshot`].
+pub fn decode_snapshot_document(input: &[u8]) -> Result<Snapshot, SnapshotDocumentError> {
+    let header: SnapshotDocumentHeader =
+        serde_json::from_slice(input).map_err(SnapshotDocumentError::InvalidHeader)?;
+
+    if header.document_type != SNAPSHOT_DOCUMENT_TYPE {
+        return Err(SnapshotDocumentError::UnexpectedDocumentType {
+            found: header.document_type,
+        });
+    }
+
+    match header.schema_version {
+        SNAPSHOT_SCHEMA_VERSION => {
+            serde_json::from_slice(input).map_err(SnapshotDocumentError::InvalidSnapshotV1)
+        }
+        found => Err(SnapshotDocumentError::UnsupportedSchemaVersion { found }),
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -40,6 +71,13 @@ impl Snapshot {
         }
         if self.captured_at.trim().is_empty() {
             return Err(SnapshotValidationError::EmptyField("captured_at"));
+        }
+        let captured_at = OffsetDateTime::parse(&self.captured_at, &Rfc3339)
+            .map_err(|_| SnapshotValidationError::InvalidCapturedAt)?;
+        let has_known_utc_designator =
+            self.captured_at.ends_with('Z') || self.captured_at.ends_with("+00:00");
+        if captured_at.offset() != UtcOffset::UTC || !has_known_utc_designator {
+            return Err(SnapshotValidationError::NonUtcCapturedAt);
         }
 
         let mut enabled = BTreeSet::new();
@@ -327,10 +365,36 @@ pub struct RegistryStartupEntry {
     pub registry_view: RegistryView,
     pub key_path: String,
     pub value_name: String,
+    pub startup_kind: RegistryStartupKind,
+    pub run_once_prefix: Option<RunOncePrefixSemantics>,
     pub value_type: u32,
     pub content_sha256: String,
     pub decoding: RegistryValueDecoding,
     pub raw_evidence: Option<RegistryRawEvidence>,
+}
+
+/// Identifies which documented startup key produced an observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryStartupKind {
+    Run,
+    RunOnce,
+}
+
+/// Structured meaning derived from the complete RunOnce Registry value name.
+///
+/// Microsoft documents `!` as deferring value deletion until after the
+/// command runs and `*` as allowing execution in Safe Mode. Combined,
+/// repeated, and marker-only prefixes remain [`Self::Undocumented`] because
+/// their behavior is not documented. The original value name remains the
+/// authoritative raw evidence and identity input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOncePrefixSemantics {
+    NoDocumentedPrefix,
+    DeferDeletionUntilAfterRun,
+    RunInSafeMode,
+    Undocumented,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -363,6 +427,39 @@ pub struct RegistryRawEvidence {
 fn validate_registry_startup_entry(
     entry: &RegistryStartupEntry,
 ) -> Result<(), SnapshotValidationError> {
+    let key_kind = entry.key_path.rsplit('\\').next().and_then(|key_name| {
+        if key_name.eq_ignore_ascii_case("Run") {
+            Some(RegistryStartupKind::Run)
+        } else if key_name.eq_ignore_ascii_case("RunOnce") {
+            Some(RegistryStartupKind::RunOnce)
+        } else {
+            None
+        }
+    });
+    if key_kind != Some(entry.startup_kind) {
+        return Err(SnapshotValidationError::InvalidRegistryEvidence {
+            field: "key_path/startup_kind",
+        });
+    }
+
+    match entry.startup_kind {
+        RegistryStartupKind::Run => {
+            if entry.run_once_prefix.is_some() {
+                return Err(SnapshotValidationError::InvalidRegistryEvidence {
+                    field: "startup_kind/run_once_prefix",
+                });
+            }
+        }
+        RegistryStartupKind::RunOnce => {
+            let expected = classify_run_once_prefix(&entry.value_name);
+            if entry.run_once_prefix != Some(expected) {
+                return Err(SnapshotValidationError::InvalidRegistryEvidence {
+                    field: "value_name/run_once_prefix",
+                });
+            }
+        }
+    }
+
     if !is_lower_hex(&entry.content_sha256, 64) {
         return Err(SnapshotValidationError::InvalidRegistryEvidence {
             field: "content_sha256",
@@ -401,6 +498,24 @@ fn validate_registry_startup_entry(
     Ok(())
 }
 
+fn classify_run_once_prefix(value_name: &str) -> RunOncePrefixSemantics {
+    if let Some(remainder) = value_name.strip_prefix('!') {
+        if remainder.is_empty() || remainder.starts_with('!') || remainder.starts_with('*') {
+            RunOncePrefixSemantics::Undocumented
+        } else {
+            RunOncePrefixSemantics::DeferDeletionUntilAfterRun
+        }
+    } else if let Some(remainder) = value_name.strip_prefix('*') {
+        if remainder.is_empty() || remainder.starts_with('!') || remainder.starts_with('*') {
+            RunOncePrefixSemantics::Undocumented
+        } else {
+            RunOncePrefixSemantics::RunInSafeMode
+        }
+    } else {
+        RunOncePrefixSemantics::NoDocumentedPrefix
+    }
+}
+
 fn decoded_value_matches_type(value_type: u32, value: &RegistryDecodedValue) -> bool {
     match value {
         RegistryDecodedValue::String { .. } => value_type == 1,
@@ -425,12 +540,34 @@ pub enum RegistryHive {
     LocalMachine,
 }
 
+/// SystemDiff's explicit evidence label for the Registry view used to collect a key.
+///
+/// A Collector must choose a variant from the target key's documented Windows
+/// semantics. It must never infer a stable view from the Collector process
+/// bitness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum RegistryView {
+    /// The key is documented by Microsoft as shared across WOW64 logical views
+    /// and is collected once. WOW64 view selectors do not create distinct data.
+    #[serde(rename = "shared")]
     Shared,
+
+    /// The key has one system view because no WOW64 alternate logical views
+    /// exist for that key on the target Windows installation.
+    ///
+    /// This must not be used for a redirected key by omitting a WOW64 selector;
+    /// such a default would vary with Collector process bitness.
+    #[serde(rename = "native")]
     Native,
+
+    /// The 32-bit logical Registry view selected explicitly with
+    /// `KEY_WOW64_32KEY` where alternate views exist.
+    #[serde(rename = "registry32")]
     Registry32,
+
+    /// The 64-bit logical Registry view selected explicitly with
+    /// `KEY_WOW64_64KEY` where alternate views exist.
+    #[serde(rename = "registry64")]
     Registry64,
 }
 
@@ -511,6 +648,45 @@ pub trait Collector {
     fn collect(&self, context: &CollectionContext) -> CollectionOutcome;
 }
 
+#[derive(Debug)]
+pub enum SnapshotDocumentError {
+    InvalidHeader(serde_json::Error),
+    UnexpectedDocumentType { found: String },
+    UnsupportedSchemaVersion { found: u32 },
+    InvalidSnapshotV1(serde_json::Error),
+}
+
+impl fmt::Display for SnapshotDocumentError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidHeader(error) => {
+                write!(
+                    formatter,
+                    "failed to parse snapshot document header: {error}"
+                )
+            }
+            Self::UnexpectedDocumentType { found } => {
+                write!(formatter, "unexpected snapshot document type: {found}")
+            }
+            Self::UnsupportedSchemaVersion { found } => {
+                write!(formatter, "unsupported snapshot schema version: {found}")
+            }
+            Self::InvalidSnapshotV1(error) => {
+                write!(formatter, "failed to parse snapshot schema v1: {error}")
+            }
+        }
+    }
+}
+
+impl Error for SnapshotDocumentError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::InvalidHeader(error) | Self::InvalidSnapshotV1(error) => Some(error),
+            Self::UnexpectedDocumentType { .. } | Self::UnsupportedSchemaVersion { .. } => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SnapshotValidationError {
     UnexpectedDocumentType {
@@ -520,6 +696,8 @@ pub enum SnapshotValidationError {
         found: u32,
     },
     EmptyField(&'static str),
+    InvalidCapturedAt,
+    NonUtcCapturedAt,
     InvalidCollectorVersion {
         collector_id: String,
     },
@@ -569,6 +747,12 @@ impl fmt::Display for SnapshotValidationError {
                 write!(formatter, "unsupported snapshot schema version: {found}")
             }
             Self::EmptyField(field) => write!(formatter, "required field is empty: {field}"),
+            Self::InvalidCapturedAt => {
+                formatter.write_str("captured_at is not a valid RFC 3339 timestamp")
+            }
+            Self::NonUtcCapturedAt => {
+                formatter.write_str("captured_at must use known UTC with Z or +00:00")
+            }
             Self::InvalidCollectorVersion { collector_id } => {
                 write!(formatter, "collector {collector_id} has version 0")
             }
