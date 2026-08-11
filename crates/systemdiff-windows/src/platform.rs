@@ -1,5 +1,6 @@
 use systemdiff_core::{HostMetadata, PrivilegeState};
 
+#[cfg(any(windows, test))]
 fn classify_privilege_state(
     is_local_system: Option<bool>,
     is_elevated: Option<bool>,

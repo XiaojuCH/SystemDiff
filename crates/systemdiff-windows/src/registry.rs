@@ -42,6 +42,7 @@ impl Collector for RegistryStartupCollector {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) enum RegistryLayout {
     X64,
     X86,
@@ -104,6 +105,7 @@ pub(crate) struct KeyReadAttempt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
 pub(crate) enum ReadKeyResult {
     Missing,
     Present(KeyReadAttempt),

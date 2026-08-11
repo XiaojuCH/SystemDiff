@@ -416,7 +416,8 @@ No migration framework is introduced in this issue. Existing synthetic Diff sema
 - [x] Addressed the first implementation review (High 1 / Medium 3): native value names now participate in the aggregate retained-evidence budget with order-independent bounded selection, LocalSystem is identified from TokenUser before elevation classification, canonical fixtures use production v1 scopes/identity, and the Win32 buffer/resource state machine has direct regression coverage.
 - [x] Hardened the E2E harness with a random guarded value name and non-recursive exact-entry temporary cleanup, then reran the real E2E and recovery check successfully.
 - [x] Completed final local gates and third-round independent review; reviewer reported High 0 / Medium 0 / Low 0.
-- [ ] Commit, push, create the linked PR, and wait for both required GitHub CI checks.
+- [x] Created commit `c3966a3`, pushed the feature branch, and opened PR #6 linked to Issue #5.
+- [ ] Fix the Ubuntu target-specific dead-code Clippy failure and wait for both required GitHub CI checks.
 
 ## Discoveries
 

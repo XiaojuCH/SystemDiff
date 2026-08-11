@@ -1,3 +1,7 @@
+// These helpers are production code on Windows and remain available on other
+// targets so deterministic buffer/resource tests can run without Win32 APIs.
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use crate::registry::{
     MAX_REGISTRY_VALUE_DATA_BYTES, MAX_REGISTRY_VALUES_PER_SCOPE, RawRegistryValue, SourceIssue,
     native_evidence_bytes, registry_resource_limit_issue, registry_value_identity,
