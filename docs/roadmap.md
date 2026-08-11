@@ -10,6 +10,8 @@ The roadmap is outcome-oriented. Dates are intentionally omitted until the proje
 
 Exit condition: the repository is understandable, reviewable, and ready for the first collector issue without pretending the product already works.
 
+Status: complete. The first Collector phase is now underway.
+
 ## v0.1: CLI evidence pipeline
 
 User outcome:
@@ -22,7 +24,7 @@ systemdiff diff before.json after.json
 
 Required scope:
 
-- Registry Run/RunOnce entries.
+- Registry Run/RunOnce entries. **Implemented in the development CLI; pre-release validation continues.**
 - Windows services configuration.
 - Scheduled Tasks 2.0 configuration.
 - Versioned snapshot and diff JSON.

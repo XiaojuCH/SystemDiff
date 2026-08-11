@@ -21,7 +21,7 @@ A diff uses `systemdiff.diff` and its own schema version. Application versions a
 
 Readers inspect `document_type` and `schema_version` before deserializing the remaining body. Unknown major versions are rejected with a clear error. Additive top-level metadata may be tolerated, but an unknown typed artifact is never silently discarded.
 
-The CLI accepts Snapshot files up to 64 MiB. It checks metadata before allocating the full input, performs a bounded read of at most the supported maximum plus one byte, and rechecks the actual byte count before JSON decoding. This fixed ceiling provides headroom for targeted v0.1 evidence while bounding parser amplification; it is not a streaming parser or a configurable resource-policy framework.
+The CLI accepts and generates Snapshot files up to 64 MiB. Input handling checks metadata before allocating the full input, performs a bounded read of at most the supported maximum plus one byte, and rechecks the actual byte count before JSON decoding. Output is fully serialized through a capped writer before a destination is created. The destination uses create-new semantics and is never overwritten; a write/flush failure reports that the newly created path may be incomplete rather than deleting by pathname. This fixed ceiling provides headroom for targeted v0.1 evidence while bounding parser amplification; it is not a streaming parser or a configurable resource-policy framework.
 
 After the bounded read, the core first deserializes a minimal header containing only `document_type` and `schema_version`. Only `systemdiff.snapshot` schema v1 is then routed to the current `Snapshot` wire type. This header pass still scans the bounded JSON to skip unrelated fields; it does not construct a generic JSON DOM or the full Snapshot body before routing.
 
@@ -40,11 +40,11 @@ A snapshot records:
 
 Diagnostics include a stable code, collection stage, and optional Win32/HRESULT numeric value. Localized error messages are for humans only.
 
-Readers accept known UTC expressed with `Z` or `+00:00` and reject non-zero offsets. RFC 3339 `-00:00` means that the local offset is unknown, so it is not accepted as a known UTC assertion. Snapshot readers preserve the original valid wire string; future SystemDiff-generated Snapshots will emit canonical `Z`.
+Readers accept known UTC expressed with `Z` or `+00:00` and reject non-zero offsets. RFC 3339 `-00:00` means that the local offset is unknown, so it is not accepted as a known UTC assertion. Snapshot readers preserve the original valid wire string; SystemDiff-generated Snapshots emit canonical `Z`.
 
 ## Registry value evidence
 
-Registry artifacts preserve the value name and the numeric Windows Registry type code independently from interpretation. The draft typed decoding supports strings, unexpanded expandable strings, multi-strings, DWORDs, and QWORDs; binary, unknown, or malformed values can remain undecoded with an explicit `not_applicable`, `unsupported_type`, or `invalid_data` status. The type code remains authoritative, and decoded kinds are validated against it, so a future Collector never needs to coerce every value into UTF-16LE text.
+Registry artifacts preserve the value name and the numeric Windows Registry type code independently from interpretation. `value_name` is a tagged lossless value: valid Unicode is serialized as `{"encoding":"decoded","value":"..."}`, while invalid UTF-16 is preserved as exact lowercase UTF-16LE hex. Empty/default value names are valid evidence and round-trip without special casing. The draft typed value-data decoding supports strings, unexpanded expandable strings, multi-strings, DWORDs, and QWORDs; binary, unknown, or malformed values can remain undecoded with an explicit `not_applicable`, `unsupported_type`, or `invalid_data` status. The type code remains authoritative, and decoded kinds are validated against it, so the Collector never needs to coerce every value into UTF-16LE text.
 
 Each startup artifact explicitly identifies whether it came from a `run` or `run_once` key. A Run entry has no RunOnce prefix semantics. A RunOnce entry records exactly one structured interpretation derived from the complete value name:
 
@@ -55,7 +55,9 @@ Each startup artifact explicitly identifies whether it came from a `run` or `run
 
 The structured interpretation never replaces or strips the complete `value_name`. The full name, including any prefix, remains raw evidence and part of the Collector-owned canonical identity. `Foo`, `!Foo`, and `*Foo` therefore remain distinct observations. The draft schema rejects a `startup_kind` inconsistent with the final `Run`/`RunOnce` key-path component, a Run entry carrying RunOnce semantics, or a RunOnce interpretation inconsistent with its raw name.
 
-Every Registry artifact includes lowercase SHA-256 of the complete native value bytes. This keeps two undecoded values distinguishable even when neither retains raw bytes, and keeps truncated prefixes from hiding a changed suffix. Optional raw evidence is limited to the first 4 KiB, records captured/original byte counts and truncation, and uses validated lowercase hex rather than JSON arrays of byte integers. Hex costs two JSON characters per byte but needs no ambiguous binary codec and remains substantially smaller than integer arrays.
+Every Registry artifact includes lowercase SHA-256 of the complete native value bytes. This keeps two undecoded values distinguishable even when neither retains raw bytes. Optional raw evidence is schema-bounded to the first 4 KiB, records captured/original byte counts and truncation, and uses validated lowercase hex rather than JSON arrays of byte integers. Registry startup Collector v1 always emits `raw_evidence: null`: no concrete need currently outweighs the privacy and Snapshot-size cost of duplicating native bytes.
+
+Registry startup collection also applies explicit SystemDiff resource budgets: 8 MiB of native data per value, 32 MiB of retained native value-name and value-data evidence across the Collector, and 4,096 values per scope. These are capture limits, not Windows platform limits. Exceeding one creates a scoped diagnostic and `partial` coverage; a value without complete native evidence is not emitted or hashed as if complete, while fully captured sibling observations are retained.
 
 Hashes and raw prefixes are still sensitive: low-entropy values can be guessed, and Registry data may contain paths, usernames, commands, or secrets. Raw evidence is included only for a concrete forensic reason rather than duplicated for every decoded value, and both forms must be covered by redaction/share policy.
 
@@ -78,9 +80,9 @@ The logical key is:
 collector_id + scope_id + artifact_kind + canonical_identity
 ```
 
-Collectors own canonicalization and version it through their Collector version. Raw casing and display values remain in evidence. Duplicate keys make the snapshot invalid for diffing.
+Collectors own canonicalization and version it through their Collector version. Raw casing and display values remain in evidence. Duplicate keys make the snapshot invalid for diffing. Diagnostics may carry a `scope_id`; when present, it must reference one of the same Collector run's coverage scopes. A missing `scope_id` remains a collector-wide diagnostic.
 
-For Registry startup entries, the complete raw value name participates in canonical identity. Prefixes are not stripped or normalized into a prefix-independent identity.
+For Registry startup entries, Collector v1 computes a domain-separated SHA-256 over the exact value-name UTF-16 code units and their length. Prefixes and empty names are not stripped or normalized. Windows Registry value lookup itself is case-insensitive, but Microsoft does not provide a documented persistent canonical representation that can be generated independently in two Snapshots and compared cross-platform. Exact-code-unit identity is therefore a conservative pre-v0.1 limitation: it prevents false merges but could expose a casing-only logical update as Removed + Added if enumerated casing changes. This is not a permanent claim about Registry identity; changing the algorithm requires a new Collector version and regression fixtures.
 
 ## Diff semantics
 

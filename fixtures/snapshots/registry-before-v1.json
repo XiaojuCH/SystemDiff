@@ -1,0 +1,54 @@
+{
+  "document_type": "systemdiff.snapshot",
+  "schema_version": 1,
+  "systemdiff_version": "0.0.0-dev",
+  "captured_at": "2026-08-11T00:00:00Z",
+  "host": {
+    "windows_version": "synthetic-windows",
+    "windows_build": "26100",
+    "architecture": "x86_64"
+  },
+  "privilege": "standard_user",
+  "enabled_collectors": [
+    "windows.registry.startup"
+  ],
+  "collectors": [
+    {
+      "id": "windows.registry.startup",
+      "version": 1,
+      "status": "complete",
+      "coverage": [
+        {
+          "scope_id": "current_user.shared.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "current_user.shared.run_once",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry32.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry32.run_once",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry64.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry64.run_once",
+          "status": "complete"
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "redaction": {
+    "status": "unredacted",
+    "policy": null
+  },
+  "observations": []
+}

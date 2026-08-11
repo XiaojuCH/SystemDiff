@@ -9,6 +9,18 @@ fn snapshots() -> (Snapshot, Snapshot) {
     (before, after)
 }
 
+fn registry_snapshots() -> (Snapshot, Snapshot) {
+    let before = serde_json::from_str(include_str!(
+        "../../../fixtures/snapshots/registry-before-v1.json"
+    ))
+    .expect("the Registry before fixture must deserialize");
+    let after = serde_json::from_str(include_str!(
+        "../../../fixtures/snapshots/registry-after-v1.json"
+    ))
+    .expect("the Registry after fixture must deserialize");
+    (before, after)
+}
+
 #[test]
 fn classifies_added_removed_modified_and_inconclusive_changes() {
     let (before, after) = snapshots();
@@ -210,4 +222,54 @@ fn overlapping_collector_version_mismatch_is_rejected() {
         diff_snapshots(&before, &after, DiffOptions::default()),
         Err(DiffError::IncompatibleCollectorVersion { .. })
     ));
+}
+
+#[test]
+fn registry_fixture_produces_exactly_one_added_startup_value() {
+    let (before, after) = registry_snapshots();
+    let diff = diff_snapshots(&before, &after, DiffOptions::default())
+        .expect("Registry fixtures must be comparable");
+
+    assert!(diff.warnings.is_empty());
+    assert_eq!(diff.changes.len(), 1);
+    assert_eq!(diff.changes[0].key.collector_id, "windows.registry.startup");
+    assert_eq!(diff.changes[0].key.scope_id, "current_user.shared.run");
+    assert!(matches!(
+        &diff.changes[0].change,
+        ChangeKind::Added {
+            after: Artifact::RegistryStartup(_)
+        }
+    ));
+}
+
+#[test]
+fn partial_registry_scope_does_not_create_a_false_removal() {
+    let (_, before) = registry_snapshots();
+    let (mut after, _) = registry_snapshots();
+    after.captured_at = "2026-08-11T00:02:00Z".to_owned();
+    let registry = after
+        .collectors
+        .iter_mut()
+        .find(|run| run.id == "windows.registry.startup")
+        .expect("Registry run must exist");
+    registry.status = CollectorStatus::Partial;
+    registry
+        .coverage
+        .iter_mut()
+        .find(|coverage| coverage.scope_id == "current_user.shared.run")
+        .expect("HKCU Run scope must exist")
+        .status = CollectorStatus::Partial;
+
+    let diff = diff_snapshots(&before, &after, DiffOptions::default())
+        .expect("partial Registry coverage must produce a conservative diff");
+    assert_eq!(diff.changes.len(), 1);
+    assert!(matches!(
+        &diff.changes[0].change,
+        ChangeKind::Inconclusive { .. }
+    ));
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|warning| warning.scope_id == "current_user.shared.run")
+    );
 }

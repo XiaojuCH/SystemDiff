@@ -50,7 +50,7 @@ A Snapshot is an observed state at a point in time. It records document/schema v
 
 Snapshots do not claim to be atomic. Coverage and concurrent-change diagnostics are evidence needed to interpret a later diff.
 
-Snapshot files are untrusted input. The CLI enforces a fixed 64 MiB file ceiling with metadata preflight and a bounded read before handing bytes to core. Core then inspects `document_type` and `schema_version` before constructing the supported v1 wire type. This is an intentionally small synchronous boundary, not a streaming parser or general resource-policy framework.
+Snapshot files are untrusted input. The CLI enforces a fixed 64 MiB file ceiling with metadata preflight and a bounded read before handing bytes to core. Core then inspects `document_type` and `schema_version` before constructing the supported v1 wire type. Generated Snapshots pass through a capped serializer before create-new file I/O, so oversized output never creates a destination and existing files are never overwritten. This is an intentionally small synchronous boundary, not a streaming parser or general resource-policy framework.
 
 ### Collector
 
@@ -81,7 +81,7 @@ Each observation separates:
 - stable fields that participate in default comparison;
 - volatile fields that are retained only when useful and excluded from default comparison.
 
-Identity is not a `Debug` string, full-JSON hash, localized display name, or executable judgment. Original Windows casing/value text is preserved even when comparison uses documented case-insensitive semantics.
+Identity is not a `Debug` string, full-JSON hash, localized display name, or executable judgment. Original Windows casing/value text is preserved. Registry startup Collector v1 deliberately uses exact UTF-16 value-name evidence rather than claiming an undocumented durable case-folded token; its known casing-only false-split limitation is versioned and documented in [collectors.md](collectors.md).
 
 Registry observations keep the native type code separate from a tagged typed decoding result. String, expandable-string, multi-string, DWORD, and QWORD interpretations therefore do not force unknown, binary, or malformed Registry data through a text-only model. A full-content SHA-256 keeps undecoded or truncated values comparable. Optional raw prefixes are limited to 4 KiB and use validated lowercase hex with captured/original sizes and truncation metadata; Collectors do not duplicate raw bytes when decoded evidence is sufficient.
 
@@ -105,11 +105,11 @@ Reports initially support deterministic JSON and a human-readable terminal view.
 
 ## Windows collection strategy
 
-The first collectors use Unicode platform APIs through narrowly feature-gated `windows-rs` bindings:
+Windows collection uses Unicode platform APIs through narrowly feature-gated `windows-rs` bindings:
 
-- Run/RunOnce: Registry APIs with explicit WOW64 views where applicable.
-- Services: Service Control Manager enumeration and configuration query APIs.
-- Scheduled Tasks: Task Scheduler 2.0 COM interfaces with recursive folder traversal.
+- Run/RunOnce (implemented): Registry APIs with explicit WOW64 views where applicable.
+- Services (planned): Service Control Manager enumeration and configuration query APIs.
+- Scheduled Tasks (planned): Task Scheduler 2.0 COM interfaces with recursive folder traversal.
 
 Command output from `reg.exe`, `sc.exe`, `schtasks.exe`, PowerShell, or WMI is not a data contract and will not be parsed. Detailed coverage and API references live in [collectors.md](collectors.md).
 
@@ -139,8 +139,10 @@ Important choices were checked on 2026-08-11. Re-evaluate them when introduced o
 | --- | --- | --- |
 | Rust/Cargo | Stable toolchain; Rust 2024 workspace resolver | Accepted for shared core, memory safety, native distribution, and strong test tooling |
 | `serde` / `serde_json` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/serde-rs/serde) | Accepted for explicit versioned JSON wire types |
-| `time` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/time-rs/time) | Accepted in `systemdiff-core` with only the parsing feature for standards-based RFC 3339 validation; clock, local-offset, formatting, and serde features remain disabled |
-| `windows-rs` | Microsoft-maintained and active; Apache-2.0 OR MIT; [official repository](https://github.com/microsoft/windows-rs) | Planned for collectors; enable only required API features and prefer typed bindings |
+| `time` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/time-rs/time) | Accepted for standards-based RFC 3339 parsing in core and canonical UTC timestamp formatting in CLI; local-offset and serde features remain disabled |
+| `sha2` | Active; Apache-2.0 OR MIT; [RustCrypto repository](https://github.com/RustCrypto/hashes) | Accepted without default features for full native Registry value hashes and versioned evidence identities |
+| `windows-rs` | Microsoft-maintained and active; Apache-2.0 OR MIT; [official repository](https://github.com/microsoft/windows-rs) | Accepted in `systemdiff-windows`; only required Win32 feature families are enabled and unsafe calls remain behind narrow adapters |
+| `windows-version` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/microsoft/windows-rs) | Accepted for the documented Windows 10/Server version 1709 minimum check without shelling out or parsing localized output |
 | `clap` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/clap-rs/clap) | Accepted at the CLI boundary only |
 | Tauri 2 | Active; Apache-2.0 OR MIT; requires C++ Build Tools and WebView2 on Windows; [prerequisites](https://v2.tauri.app/start/prerequisites/) | Proposed for v0.2; excluded from v0.1 build until a security-focused spike |
 | React / TypeScript / Vite | Active; permissive licenses; frontend support windows require regular upgrades | Proposed with Tauri; lockfile and dependency audit required when introduced |
@@ -155,7 +157,7 @@ Do not introduce Tokio/`async-trait`, a database, network client, telemetry SDK,
 - Coverage transitions such as complete → partial protect against false removals.
 - Windows adapter tests isolate buffer parsing, normalization, and API error mapping.
 - Default CI never writes real Run keys, services, or tasks and never requires elevation.
-- Privileged Windows integration tests, if added, are explicit opt-in and use disposable, narrowly named resources.
+- The write-capable HKCU Registry E2E is a separate test-only PowerShell harness with two explicit gates, exact-data guarded cleanup, no administrator requirement, and no link into production CLI/API code.
 
 ## Desktop decision
 

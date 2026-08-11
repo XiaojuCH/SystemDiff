@@ -86,16 +86,17 @@ mod tests {
             change_id: "change:v1:synthetic".to_owned(),
             key: ArtifactKey {
                 collector_id: "windows.registry.startup".to_owned(),
-                scope_id: "current_user.shared".to_owned(),
+                scope_id: "current_user.shared.run".to_owned(),
                 artifact_kind: "registry_startup".to_owned(),
-                canonical_id: "synthetic".to_owned(),
+                canonical_id: "2b5aa4b6759d1a597bfe4cbaee815e29975512901f60b05d331e26296ed67ebb"
+                    .to_owned(),
             },
             change: ChangeKind::Added {
                 after: systemdiff_core::Artifact::RegistryStartup(RegistryStartupEntry {
                     hive: RegistryHive::CurrentUser,
                     registry_view: RegistryView::Shared,
                     key_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".to_owned(),
-                    value_name: "Synthetic".to_owned(),
+                    value_name: systemdiff_core::RegistryValueName::decoded("Synthetic"),
                     startup_kind: RegistryStartupKind::Run,
                     run_once_prefix: None,
                     value_type: 1,

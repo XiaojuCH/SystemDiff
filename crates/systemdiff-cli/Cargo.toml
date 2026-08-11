@@ -12,7 +12,11 @@ path = "src/main.rs"
 
 [dependencies]
 clap.workspace = true
+time.workspace = true
 systemdiff-core.workspace = true
 systemdiff-diff.workspace = true
 systemdiff-report.workspace = true
 systemdiff-windows.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

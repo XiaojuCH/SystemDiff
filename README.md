@@ -7,7 +7,7 @@
 **SystemDiff shows what changed on a Windows system, with plain-language explanations backed by inspectable evidence.**
 
 > [!IMPORTANT]
-> SystemDiff is in repository bootstrap. There is no end-user release and no operating-system Collector is implemented yet. The current code proves the draft schema, deterministic diff, report, and contribution boundaries; it is not an effective system scanner today.
+> SystemDiff is pre-release software with no end-user distribution yet. The development CLI now captures the documented Windows Run/RunOnce startup locations through its first real read-only Collector and can compare two Snapshots. Services, Scheduled Tasks, explanations/rules, redaction, and the desktop app are not implemented.
 
 ## Why SystemDiff?
 
@@ -38,7 +38,7 @@ ExampleApp settings
   Usually harmless
 ```
 
-This output is illustrative, not a current detection claim. Advanced users will be able to inspect exact registry paths, service/task configuration, raw before/after values, Collector and rule IDs, structured JSON, hashes, and signature metadata when supported.
+This output is illustrative, not a current detection claim. Current Registry diffs expose exact paths, value names/types, typed decode status, complete-value SHA-256, Collector/scope identity, and structured JSON. Service/task evidence, rules, and signature metadata remain planned.
 
 SystemDiff does not equate unusual with malicious. Explanations sit on top of evidence; they never replace it.
 
@@ -54,7 +54,7 @@ SystemDiff does not equate unusual with malicious. Explanations sit on top of ev
 
 See [product principles](docs/product-principles.md) and the [threat model](docs/threat-model.md).
 
-## Planned v0.1 workflow
+## Current pre-v0.1 workflow
 
 ```powershell
 systemdiff snapshot -o before.json
@@ -65,7 +65,9 @@ systemdiff snapshot -o after.json
 systemdiff diff before.json after.json
 ```
 
-The `snapshot` command is intentionally not implemented in the bootstrap. v0.1 will be complete only when this pipeline works reliably.
+This pipeline now works from a source build on supported Windows systems for Registry Run/RunOnce evidence only. Snapshot files are unredacted and may contain sensitive command strings and paths. v0.1 is not complete until all required Collectors and the full workflow are reliable.
+
+The current minimum platform is Windows 10 version 1709 or Windows Server 2016 version 1709. ARM64 captures current-user shared Registry scopes, but v1 explicitly reports HKLM alternate-view coverage as unsupported until those view semantics can be represented and tested correctly.
 
 The draft v0.1 comparison model assumes that both snapshots come from the same Windows installation and the same user/principal context. Cross-host and cross-user identity are intentionally out of scope.
 
@@ -73,7 +75,7 @@ The draft v0.1 comparison model assumes that both snapshots come from the same W
 
 | Collector | v0.1 scope | Current status |
 | --- | --- | --- |
-| Registry startup | Documented Run/RunOnce locations and correct Registry views | Planned |
+| Registry startup | Documented Run/RunOnce locations and explicit Registry views | Implemented in the development CLI |
 | Windows services | Stable Win32 service configuration; drivers excluded | Planned |
 | Scheduled tasks | Task Scheduler 2.0 configuration with permission-aware coverage | Planned |
 
@@ -99,7 +101,7 @@ cargo run --locked -p systemdiff-cli -- diff --json fixtures/snapshots/before-v1
 cargo run --locked -p systemdiff-cli -- collectors
 ```
 
-The bootstrap workspace has been validated with a real stable Rust MSVC toolchain. See [.agent/PROJECT_STATE.md](.agent/PROJECT_STATE.md) for the exact validated state and remaining product limitations.
+The workspace and the opt-in synthetic HKCU Registry E2E have been validated with a real stable Rust MSVC toolchain. The E2E harness is test-only, requires two explicit gates, refuses to overwrite an existing value, and is not run by default CI. See [.agent/PROJECT_STATE.md](.agent/PROJECT_STATE.md) for the exact validated state and remaining product limitations.
 
 ## Architecture
 

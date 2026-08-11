@@ -10,6 +10,7 @@ use time::{OffsetDateTime, UtcOffset};
 pub const SNAPSHOT_DOCUMENT_TYPE: &str = "systemdiff.snapshot";
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 pub const REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES: u64 = 4_096;
+pub const REGISTRY_VALUE_NAME_MAX_UTF16_UNITS: usize = 16_383;
 
 #[derive(Debug, Deserialize)]
 struct SnapshotDocumentHeader {
@@ -152,6 +153,27 @@ impl Snapshot {
                         collector_id: run.id.clone(),
                         scope_id: coverage.scope_id.clone(),
                     });
+                }
+            }
+
+            for diagnostic in &run.diagnostics {
+                if diagnostic.code.trim().is_empty() {
+                    return Err(SnapshotValidationError::EmptyField(
+                        "collectors[].diagnostics[].code",
+                    ));
+                }
+                if let Some(scope_id) = &diagnostic.scope_id {
+                    if scope_id.trim().is_empty() {
+                        return Err(SnapshotValidationError::EmptyField(
+                            "collectors[].diagnostics[].scope_id",
+                        ));
+                    }
+                    if !scopes.contains(scope_id.as_str()) {
+                        return Err(SnapshotValidationError::DiagnosticReferencesUnknownScope {
+                            collector_id: run.id.clone(),
+                            scope_id: scope_id.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -301,6 +323,8 @@ pub struct Diagnostic {
     pub message: String,
     pub stage: Option<String>,
     pub native_code: Option<i64>,
+    #[serde(default)]
+    pub scope_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -364,13 +388,56 @@ pub struct RegistryStartupEntry {
     pub hive: RegistryHive,
     pub registry_view: RegistryView,
     pub key_path: String,
-    pub value_name: String,
+    pub value_name: RegistryValueName,
     pub startup_kind: RegistryStartupKind,
     pub run_once_prefix: Option<RunOncePrefixSemantics>,
     pub value_type: u32,
     pub content_sha256: String,
     pub decoding: RegistryValueDecoding,
     pub raw_evidence: Option<RegistryRawEvidence>,
+}
+
+/// Lossless Registry value-name evidence.
+///
+/// Win32 returns UTF-16 code units. Valid Unicode remains convenient JSON text;
+/// malformed UTF-16 remains exact lowercase UTF-16LE hex instead of being
+/// replaced with U+FFFD.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "encoding", rename_all = "snake_case")]
+pub enum RegistryValueName {
+    Decoded { value: String },
+    InvalidUtf16 { utf16le_hex: String },
+}
+
+impl RegistryValueName {
+    pub fn decoded(value: impl Into<String>) -> Self {
+        Self::Decoded {
+            value: value.into(),
+        }
+    }
+
+    pub fn from_utf16_units(units: &[u16]) -> Self {
+        match String::from_utf16(units) {
+            Ok(value) => Self::Decoded { value },
+            Err(_) => Self::InvalidUtf16 {
+                utf16le_hex: encode_utf16le_hex(units),
+            },
+        }
+    }
+
+    pub fn utf16_units(&self) -> Option<Vec<u16>> {
+        match self {
+            Self::Decoded { value } => Some(value.encode_utf16().collect()),
+            Self::InvalidUtf16 { utf16le_hex } => decode_utf16le_hex(utf16le_hex),
+        }
+    }
+
+    pub fn decoded_value(&self) -> Option<&str> {
+        match self {
+            Self::Decoded { value } => Some(value),
+            Self::InvalidUtf16 { .. } => None,
+        }
+    }
 }
 
 /// Identifies which documented startup key produced an observation.
@@ -427,6 +494,7 @@ pub struct RegistryRawEvidence {
 fn validate_registry_startup_entry(
     entry: &RegistryStartupEntry,
 ) -> Result<(), SnapshotValidationError> {
+    let value_name_units = validate_registry_value_name(&entry.value_name)?;
     let key_kind = entry.key_path.rsplit('\\').next().and_then(|key_name| {
         if key_name.eq_ignore_ascii_case("Run") {
             Some(RegistryStartupKind::Run)
@@ -451,7 +519,7 @@ fn validate_registry_startup_entry(
             }
         }
         RegistryStartupKind::RunOnce => {
-            let expected = classify_run_once_prefix(&entry.value_name);
+            let expected = classify_run_once_prefix_units(&value_name_units);
             if entry.run_once_prefix != Some(expected) {
                 return Err(SnapshotValidationError::InvalidRegistryEvidence {
                     field: "value_name/run_once_prefix",
@@ -498,21 +566,89 @@ fn validate_registry_startup_entry(
     Ok(())
 }
 
-fn classify_run_once_prefix(value_name: &str) -> RunOncePrefixSemantics {
-    if let Some(remainder) = value_name.strip_prefix('!') {
-        if remainder.is_empty() || remainder.starts_with('!') || remainder.starts_with('*') {
+pub fn classify_run_once_prefix_units(value_name: &[u16]) -> RunOncePrefixSemantics {
+    if let Some(remainder) = value_name.strip_prefix(&[u16::from(b'!')]) {
+        if remainder.is_empty()
+            || remainder.starts_with(&[u16::from(b'!')])
+            || remainder.starts_with(&[u16::from(b'*')])
+        {
             RunOncePrefixSemantics::Undocumented
         } else {
             RunOncePrefixSemantics::DeferDeletionUntilAfterRun
         }
-    } else if let Some(remainder) = value_name.strip_prefix('*') {
-        if remainder.is_empty() || remainder.starts_with('!') || remainder.starts_with('*') {
+    } else if let Some(remainder) = value_name.strip_prefix(&[u16::from(b'*')]) {
+        if remainder.is_empty()
+            || remainder.starts_with(&[u16::from(b'!')])
+            || remainder.starts_with(&[u16::from(b'*')])
+        {
             RunOncePrefixSemantics::Undocumented
         } else {
             RunOncePrefixSemantics::RunInSafeMode
         }
     } else {
         RunOncePrefixSemantics::NoDocumentedPrefix
+    }
+}
+
+fn validate_registry_value_name(
+    value_name: &RegistryValueName,
+) -> Result<Vec<u16>, SnapshotValidationError> {
+    let units =
+        value_name
+            .utf16_units()
+            .ok_or(SnapshotValidationError::InvalidRegistryEvidence {
+                field: "value_name",
+            })?;
+    if units.len() > REGISTRY_VALUE_NAME_MAX_UTF16_UNITS || units.contains(&0) {
+        return Err(SnapshotValidationError::InvalidRegistryEvidence {
+            field: "value_name",
+        });
+    }
+    match value_name {
+        RegistryValueName::Decoded { .. } => {}
+        RegistryValueName::InvalidUtf16 { .. } => {
+            if units.is_empty() || String::from_utf16(&units).is_ok() {
+                return Err(SnapshotValidationError::InvalidRegistryEvidence {
+                    field: "value_name",
+                });
+            }
+        }
+    }
+    Ok(units)
+}
+
+fn encode_utf16le_hex(units: &[u16]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(units.len().saturating_mul(4));
+    for unit in units {
+        for byte in unit.to_le_bytes() {
+            encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+            encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+    }
+    encoded
+}
+
+fn decode_utf16le_hex(encoded: &str) -> Option<Vec<u16>> {
+    if !encoded.len().is_multiple_of(4) || !is_lower_hex(encoded, encoded.len()) {
+        return None;
+    }
+    encoded
+        .as_bytes()
+        .chunks_exact(4)
+        .map(|chunk| {
+            let low = (hex_nibble(chunk[0])? << 4) | hex_nibble(chunk[1])?;
+            let high = (hex_nibble(chunk[2])? << 4) | hex_nibble(chunk[3])?;
+            Some(u16::from_le_bytes([low, high]))
+        })
+        .collect()
+}
+
+fn hex_nibble(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
     }
 }
 
@@ -643,6 +779,73 @@ pub struct CollectionOutcome {
     pub observations: Vec<Observation>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotMetadata {
+    pub systemdiff_version: String,
+    pub captured_at: String,
+    pub host: HostMetadata,
+    pub privilege: PrivilegeState,
+    pub redaction: RedactionMetadata,
+}
+
+pub fn assemble_snapshot(
+    metadata: SnapshotMetadata,
+    mut outcomes: Vec<CollectionOutcome>,
+) -> Result<Snapshot, SnapshotValidationError> {
+    outcomes.sort_by(|left, right| left.run.id.cmp(&right.run.id));
+    for outcome in &mut outcomes {
+        outcome
+            .run
+            .coverage
+            .sort_by(|left, right| left.scope_id.cmp(&right.scope_id));
+        outcome.run.diagnostics.sort_by(|left, right| {
+            (
+                &left.scope_id,
+                &left.code,
+                &left.stage,
+                left.native_code,
+                &left.message,
+            )
+                .cmp(&(
+                    &right.scope_id,
+                    &right.code,
+                    &right.stage,
+                    right.native_code,
+                    &right.message,
+                ))
+        });
+        outcome
+            .observations
+            .sort_by_key(|observation| observation.key());
+    }
+
+    let enabled_collectors = outcomes
+        .iter()
+        .map(|outcome| outcome.run.id.clone())
+        .collect();
+    let collectors = outcomes.iter().map(|outcome| outcome.run.clone()).collect();
+    let mut observations: Vec<_> = outcomes
+        .into_iter()
+        .flat_map(|outcome| outcome.observations)
+        .collect();
+    observations.sort_by_key(|observation| observation.key());
+
+    let snapshot = Snapshot {
+        document_type: SNAPSHOT_DOCUMENT_TYPE.to_owned(),
+        schema_version: SNAPSHOT_SCHEMA_VERSION,
+        systemdiff_version: metadata.systemdiff_version,
+        captured_at: metadata.captured_at,
+        host: metadata.host,
+        privilege: metadata.privilege,
+        enabled_collectors,
+        collectors,
+        redaction: metadata.redaction,
+        observations,
+    };
+    snapshot.validate()?;
+    Ok(snapshot)
+}
+
 pub trait Collector {
     fn descriptor(&self) -> CollectorDescriptor;
     fn collect(&self, context: &CollectionContext) -> CollectionOutcome;
@@ -710,6 +913,10 @@ pub enum SnapshotValidationError {
         status: CollectorStatus,
     },
     DuplicateCoverage {
+        collector_id: String,
+        scope_id: String,
+    },
+    DiagnosticReferencesUnknownScope {
         collector_id: String,
         scope_id: String,
     },
@@ -784,6 +991,13 @@ impl fmt::Display for SnapshotValidationError {
             } => write!(
                 formatter,
                 "duplicate coverage scope for {collector_id}: {scope_id}"
+            ),
+            Self::DiagnosticReferencesUnknownScope {
+                collector_id,
+                scope_id,
+            } => write!(
+                formatter,
+                "diagnostic references unknown coverage scope for {collector_id}: {scope_id}"
             ),
             Self::MissingCoverage {
                 collector_id,
