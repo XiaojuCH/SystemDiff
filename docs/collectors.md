@@ -19,13 +19,21 @@ Implementation source:
 - `RegOpenKeyExW`, `RegQueryInfoKeyW`, and `RegEnumValueW`.
 - On 64-bit Windows, enumerate HKLM `Software` in explicit 64-bit and 32-bit views; do not address `Wow6432Node` directly.
 - On Windows 7 and later, HKCU `Software` is shared and is collected once.
+- Emit `Registry32` only after explicitly selecting `KEY_WOW64_32KEY`, and emit `Registry64` only after explicitly selecting `KEY_WOW64_64KEY`. These labels describe logical Registry views, not processor-specific physical stores.
+- Emit `Shared` only for keys Microsoft documents as shared. Emit `Native` only when the target key has one system view and no WOW64 alternate logical views. A Collector must never use `Native` as a shortcut for omitting a selector on a redirected key, because the resulting default depends on process bitness.
 - Preserve the numeric Registry type, a typed safe-decode outcome, original unexpanded `REG_EXPAND_SZ`, and original names/casing. Do not assume every value is UTF-16LE text.
 - Compute SHA-256 over the complete native value bytes before decoding or truncation so undecoded values still compare reliably.
 - Retain a raw prefix only when it adds concrete forensic value, encode it as lowercase hex, enforce the 4 KiB schema limit, and record truncation; ordinary decoded Run values do not need duplicated raw payloads by default.
 - Treat value order as unstable and bound any retry when a key changes during enumeration.
 - A missing Run key is a complete empty scope, not an error.
 
-RunOnce `!` and `*` prefixes are recorded as derived evidence. Environment expansion, command-line parsing, executable discovery, hashing, and signature checks are later enrichment stages.
+RunOnce prefix evidence follows Microsoft's documented value-name behavior:
+
+- By default, a RunOnce value is deleted before its command runs. A leading `!` defers deletion until after the command runs.
+- Run and RunOnce keys are ignored in Safe Mode by default. A leading `*` makes a RunOnce value run in Safe Mode.
+- Microsoft does not define combined, repeated, or marker-only prefix forms. Preserve those complete names as raw evidence and mark their structured interpretation `undocumented`; do not infer that both documented behaviors apply.
+
+The complete value name, including `!` or `*`, remains evidence and part of canonical identity. `Foo`, `!Foo`, and `*Foo` cannot collapse to the same observation. Environment expansion, command-line parsing, executable discovery, hashing, and signature checks are later enrichment stages.
 
 Official references: [Run and RunOnce](https://learn.microsoft.com/windows/win32/setupapi/run-and-runonce-registry-keys), [WOW64 affected keys](https://learn.microsoft.com/windows/win32/winprog64/shared-registry-keys), [alternate registry views](https://learn.microsoft.com/windows/win32/winprog64/accessing-an-alternate-registry-view), [RegEnumValueW](https://learn.microsoft.com/windows/win32/api/winreg/nf-winreg-regenumvaluew).
 

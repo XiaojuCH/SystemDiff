@@ -76,6 +76,8 @@
           "registry_view": "shared",
           "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
           "value_name": "ExampleApp",
+          "startup_kind": "run",
+          "run_once_prefix": null,
           "value_type": 1,
           "content_sha256": "e3f7174dd4ae12dc6be7e6d17d598e035cd03bf994008d3e8866c15183640f35",
           "decoding": {
@@ -101,6 +103,8 @@
           "registry_view": "shared",
           "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
           "value_name": "ExampleUpdater",
+          "startup_kind": "run",
+          "run_once_prefix": null,
           "value_type": 1,
           "content_sha256": "667b845250ce31564390d74904e9fd04f1a03f8dd99a6429a9bfda8fbd4efb2e",
           "decoding": {

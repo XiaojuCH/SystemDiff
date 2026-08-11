@@ -3,14 +3,16 @@
 use clap::{Parser, Subcommand};
 use std::error::Error;
 use std::fmt;
-use std::fs;
-use std::io;
+use std::fs::File;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use systemdiff_core::Snapshot;
+use systemdiff_core::{Snapshot, decode_snapshot_document};
 use systemdiff_diff::{DiffOptions, diff_snapshots};
 use systemdiff_report::{write_json, write_terminal};
 use systemdiff_windows::mvp_collector_plans;
+
+const MAX_SNAPSHOT_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -93,18 +95,63 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
 }
 
 fn load_snapshot(path: &Path) -> Result<Snapshot, CliError> {
-    let bytes = fs::read(path).map_err(|error| {
+    load_snapshot_with_limit(path, MAX_SNAPSHOT_INPUT_BYTES)
+}
+
+fn load_snapshot_with_limit(path: &Path, maximum_bytes: u64) -> Result<Snapshot, CliError> {
+    let file = File::open(path).map_err(|error| {
         CliError(format!(
-            "failed to read snapshot {}: {error}",
+            "failed to open snapshot {}: {error}",
             path.display()
         ))
     })?;
-    serde_json::from_slice(&bytes).map_err(|error| {
+
+    let metadata = file.metadata().map_err(|error| {
+        CliError(format!(
+            "failed to inspect snapshot {}: {error}",
+            path.display()
+        ))
+    })?;
+    validate_snapshot_input_size(path, metadata.len(), maximum_bytes)?;
+
+    let initial_capacity = usize::try_from(metadata.len()).map_err(|_| {
+        CliError(format!(
+            "snapshot file {} cannot be represented on this platform",
+            path.display()
+        ))
+    })?;
+    let read_limit = maximum_bytes.saturating_add(1);
+    let mut bytes = Vec::with_capacity(initial_capacity);
+    file.take(read_limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            CliError(format!(
+                "failed to read snapshot {}: {error}",
+                path.display()
+            ))
+        })?;
+    validate_snapshot_input_size(path, bytes.len() as u64, maximum_bytes)?;
+
+    decode_snapshot_document(&bytes).map_err(|error| {
         CliError(format!(
             "failed to parse snapshot {}: {error}",
             path.display()
         ))
     })
+}
+
+fn validate_snapshot_input_size(
+    path: &Path,
+    actual_bytes: u64,
+    maximum_bytes: u64,
+) -> Result<(), CliError> {
+    if actual_bytes > maximum_bytes {
+        return Err(CliError(format!(
+            "snapshot file {} is too large: {actual_bytes} bytes; maximum supported size is {maximum_bytes} bytes",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -121,6 +168,20 @@ impl Error for CliError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn write_temp_snapshot(contents: &[u8]) -> PathBuf {
+        let sequence = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "systemdiff-cli-test-{}-{sequence}.json",
+            std::process::id()
+        ));
+        fs::write(&path, contents).expect("temporary snapshot must be written");
+        path
+    }
 
     #[test]
     fn parses_json_diff_command() {
@@ -141,5 +202,35 @@ mod tests {
     #[test]
     fn snapshot_command_is_not_advertised_before_collectors_exist() {
         assert!(Cli::try_parse_from(["systemdiff", "snapshot"]).is_err());
+    }
+
+    #[test]
+    fn snapshot_input_size_below_limit_is_accepted() {
+        assert!(validate_snapshot_input_size(Path::new("snapshot.json"), 63, 64).is_ok());
+    }
+
+    #[test]
+    fn snapshot_input_size_exactly_at_limit_is_accepted() {
+        assert!(validate_snapshot_input_size(Path::new("snapshot.json"), 64, 64).is_ok());
+    }
+
+    #[test]
+    fn snapshot_input_size_above_limit_is_rejected() {
+        let error = validate_snapshot_input_size(Path::new("snapshot.json"), 65, 64)
+            .expect_err("an oversized snapshot must be rejected");
+
+        assert!(error.0.contains("is too large: 65 bytes"));
+        assert!(error.0.contains("maximum supported size is 64 bytes"));
+    }
+
+    #[test]
+    fn oversized_input_is_rejected_before_snapshot_deserialization() {
+        let path = write_temp_snapshot(b"{}");
+        let result = load_snapshot_with_limit(&path, 1);
+        fs::remove_file(&path).expect("temporary snapshot must be removed");
+
+        let error = result.expect_err("metadata above the limit must stop loading");
+        assert!(error.0.contains("is too large"));
+        assert!(!error.0.contains("parse snapshot"));
     }
 }

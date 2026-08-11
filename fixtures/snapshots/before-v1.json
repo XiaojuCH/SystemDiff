@@ -76,6 +76,8 @@
           "registry_view": "shared",
           "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
           "value_name": "ExampleApp",
+          "startup_kind": "run",
+          "run_once_prefix": null,
           "value_type": 1,
           "content_sha256": "b27cce45267b6100cdd3267ec6dcdf2023e6846bb3f0f66162ab179678f0727c",
           "decoding": {

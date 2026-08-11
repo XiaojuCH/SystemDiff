@@ -1,7 +1,7 @@
 use systemdiff_core::{
     Artifact, CollectorStatus, REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES, RegistryDecodedValue,
-    RegistryHive, RegistryRawEvidence, RegistryStartupEntry, RegistryValueDecoding, RegistryView,
-    Snapshot, SnapshotValidationError,
+    RegistryHive, RegistryRawEvidence, RegistryStartupEntry, RegistryStartupKind,
+    RegistryValueDecoding, RegistryView, Snapshot, SnapshotValidationError,
 };
 
 fn before_snapshot() -> Snapshot {
@@ -21,6 +21,59 @@ fn draft_v1_fixture_validates_and_round_trips() {
 }
 
 #[test]
+fn captured_at_accepts_supported_utc_rfc3339_forms() {
+    for captured_at in [
+        "2026-08-11T00:00:00Z",
+        "2026-08-11T00:00:00+00:00",
+        "2026-08-11T00:00:00.123456789Z",
+    ] {
+        let mut snapshot = before_snapshot();
+        snapshot.captured_at = captured_at.to_owned();
+        snapshot
+            .validate()
+            .unwrap_or_else(|error| panic!("{captured_at} must be accepted: {error}"));
+    }
+}
+
+#[test]
+fn captured_at_rejects_non_utc_and_unknown_offsets() {
+    for captured_at in ["2026-08-11T08:00:00+08:00", "2026-08-11T00:00:00-00:00"] {
+        let mut snapshot = before_snapshot();
+        snapshot.captured_at = captured_at.to_owned();
+        assert_eq!(
+            snapshot.validate(),
+            Err(SnapshotValidationError::NonUtcCapturedAt),
+            "{captured_at} must not be accepted as known UTC"
+        );
+    }
+}
+
+#[test]
+fn captured_at_rejects_empty_malformed_and_invalid_dates() {
+    let cases = [
+        ("", SnapshotValidationError::EmptyField("captured_at")),
+        (
+            "2026-08-11T00:00:00",
+            SnapshotValidationError::InvalidCapturedAt,
+        ),
+        (
+            "2026-02-30T00:00:00Z",
+            SnapshotValidationError::InvalidCapturedAt,
+        ),
+        (
+            "2026-08-11T24:00:00Z",
+            SnapshotValidationError::InvalidCapturedAt,
+        ),
+    ];
+
+    for (captured_at, expected) in cases {
+        let mut snapshot = before_snapshot();
+        snapshot.captured_at = captured_at.to_owned();
+        assert_eq!(snapshot.validate(), Err(expected), "case: {captured_at}");
+    }
+}
+
+#[test]
 fn registry_fixture_uses_typed_decoding_without_raw_evidence() {
     for fixture in [
         include_str!("../../../fixtures/snapshots/before-v1.json"),
@@ -32,6 +85,8 @@ fn registry_fixture_uses_typed_decoding_without_raw_evidence() {
             let Artifact::RegistryStartup(entry) = observation.artifact else {
                 continue;
             };
+            assert_eq!(entry.startup_kind, RegistryStartupKind::Run);
+            assert_eq!(entry.run_once_prefix, None);
             assert_eq!(entry.value_type, 1);
             assert_eq!(entry.content_sha256.len(), 64);
             assert!(entry.raw_evidence.is_none());
@@ -74,8 +129,10 @@ fn registry_decoding_round_trips_typed_values_and_compact_raw_evidence() {
         let entry = RegistryStartupEntry {
             hive: RegistryHive::CurrentUser,
             registry_view: RegistryView::Shared,
-            key_path: "Software\\Example".to_owned(),
+            key_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".to_owned(),
             value_name: "Synthetic".to_owned(),
+            startup_kind: RegistryStartupKind::Run,
+            run_once_prefix: None,
             value_type,
             content_sha256: "0".repeat(64),
             decoding: RegistryValueDecoding::Decoded {
@@ -93,8 +150,10 @@ fn registry_decoding_round_trips_typed_values_and_compact_raw_evidence() {
     let entry = RegistryStartupEntry {
         hive: RegistryHive::CurrentUser,
         registry_view: RegistryView::Shared,
-        key_path: "Software\\Example".to_owned(),
+        key_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".to_owned(),
         value_name: "Synthetic".to_owned(),
+        startup_kind: RegistryStartupKind::Run,
+        run_once_prefix: None,
         value_type: 4,
         content_sha256: "e8a4b2ee7ede79a3afb332b5b6cc3d952a65fd8cffb897f5d18016577c33d7cc"
             .to_owned(),

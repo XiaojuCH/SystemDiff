@@ -45,7 +45,7 @@ pub trait Rule {
 mod tests {
     use super::*;
     use systemdiff_core::{
-        ArtifactKey, RegistryDecodedValue, RegistryHive, RegistryStartupEntry,
+        ArtifactKey, RegistryDecodedValue, RegistryHive, RegistryStartupEntry, RegistryStartupKind,
         RegistryValueDecoding, RegistryView,
     };
     use systemdiff_diff::ChangeKind;
@@ -94,8 +94,10 @@ mod tests {
                 after: systemdiff_core::Artifact::RegistryStartup(RegistryStartupEntry {
                     hive: RegistryHive::CurrentUser,
                     registry_view: RegistryView::Shared,
-                    key_path: "Software\\Example".to_owned(),
+                    key_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".to_owned(),
                     value_name: "Synthetic".to_owned(),
+                    startup_kind: RegistryStartupKind::Run,
+                    run_once_prefix: None,
                     value_type: 1,
                     content_sha256:
                         "04c9e304d22dd63d40474ebbb8ca4cb383a68b755876aced0b32ad9e54ec82bf"
