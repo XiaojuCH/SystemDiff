@@ -1,8 +1,23 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod platform;
+mod registry;
+mod win32;
+
+use std::error::Error;
+use std::fmt;
+use systemdiff_core::{
+    CollectionContext, Collector, RedactionMetadata, RedactionStatus, Snapshot, SnapshotMetadata,
+    SnapshotValidationError, assemble_snapshot,
+};
+
+pub use registry::{
+    MAX_REGISTRY_COLLECTOR_EVIDENCE_BYTES, MAX_REGISTRY_VALUE_DATA_BYTES,
+    MAX_REGISTRY_VALUES_PER_SCOPE, REGISTRY_STARTUP_COLLECTOR_ID,
+    REGISTRY_STARTUP_COLLECTOR_VERSION, RegistryStartupCollector,
+};
 use systemdiff_core::{CollectorDescriptor, PrivilegeRequirement};
 
-pub const REGISTRY_STARTUP_COLLECTOR_ID: &str = "windows.registry.startup";
 pub const SERVICES_COLLECTOR_ID: &str = "windows.services";
 pub const SCHEDULED_TASKS_COLLECTOR_ID: &str = "windows.scheduled_tasks";
 
@@ -14,19 +29,15 @@ pub struct CollectorPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImplementationStatus {
+    Implemented,
     Planned,
 }
 
 pub fn mvp_collector_plans() -> Vec<CollectorPlan> {
     vec![
         CollectorPlan {
-            descriptor: CollectorDescriptor {
-                id: REGISTRY_STARTUP_COLLECTOR_ID.to_owned(),
-                version: 1,
-                description: "Documented Run and RunOnce registry startup locations.".to_owned(),
-                privilege: PrivilegeRequirement::StandardUserPartial,
-            },
-            implementation: ImplementationStatus::Planned,
+            descriptor: registry::descriptor(),
+            implementation: ImplementationStatus::Implemented,
         },
         CollectorPlan {
             descriptor: CollectorDescriptor {
@@ -50,13 +61,66 @@ pub fn mvp_collector_plans() -> Vec<CollectorPlan> {
     ]
 }
 
+pub fn capture_snapshot(
+    captured_at: String,
+    systemdiff_version: String,
+) -> Result<Snapshot, CaptureError> {
+    if !platform::is_supported() {
+        return Err(CaptureError::UnsupportedPlatform);
+    }
+    let host = platform::host_metadata();
+    let privilege = platform::privilege_state();
+    let context = CollectionContext { privilege };
+    let outcome = RegistryStartupCollector.collect(&context);
+    assemble_snapshot(
+        SnapshotMetadata {
+            systemdiff_version,
+            captured_at,
+            host,
+            privilege,
+            redaction: RedactionMetadata {
+                status: RedactionStatus::Unredacted,
+                policy: None,
+            },
+        },
+        vec![outcome],
+    )
+    .map_err(CaptureError::InvalidSnapshot)
+}
+
+#[derive(Debug)]
+pub enum CaptureError {
+    UnsupportedPlatform,
+    InvalidSnapshot(SnapshotValidationError),
+}
+
+impl fmt::Display for CaptureError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedPlatform => formatter.write_str(
+                "snapshot collection requires Windows 10 version 1709 / Windows Server 2016 version 1709 or later",
+            ),
+            Self::InvalidSnapshot(error) => write!(formatter, "collected Snapshot is invalid: {error}"),
+        }
+    }
+}
+
+impl Error for CaptureError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::UnsupportedPlatform => None,
+            Self::InvalidSnapshot(error) => Some(error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
     #[test]
-    fn planned_collector_ids_are_unique_and_versioned() {
+    fn collector_ids_are_unique_versioned_and_registry_is_implemented() {
         let plans = mvp_collector_plans();
         let ids: BTreeSet<_> = plans
             .iter()
@@ -65,8 +129,9 @@ mod tests {
 
         assert_eq!(plans.len(), ids.len());
         assert!(plans.iter().all(|plan| plan.descriptor.version > 0));
+        assert_eq!(plans[0].implementation, ImplementationStatus::Implemented);
         assert!(
-            plans
+            plans[1..]
                 .iter()
                 .all(|plan| plan.implementation == ImplementationStatus::Planned)
         );

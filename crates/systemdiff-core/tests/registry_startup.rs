@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use systemdiff_core::{
-    Artifact, RegistryStartupEntry, RegistryStartupKind, RegistryView, RunOncePrefixSemantics,
-    Snapshot, SnapshotValidationError,
+    Artifact, RegistryStartupEntry, RegistryStartupKind, RegistryValueName, RegistryView,
+    RunOncePrefixSemantics, Snapshot, SnapshotValidationError,
 };
 
 fn before_snapshot() -> Snapshot {
@@ -83,7 +83,7 @@ fn documented_run_once_prefixes_validate_and_round_trip() {
         let mut snapshot = before_snapshot();
         let entry = registry_entry(&mut snapshot);
         entry.key_path = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce".to_owned();
-        entry.value_name = value_name.to_owned();
+        entry.value_name = RegistryValueName::decoded(value_name);
         entry.startup_kind = RegistryStartupKind::RunOnce;
         entry.run_once_prefix = Some(semantics);
 
@@ -102,7 +102,7 @@ fn undocumented_run_once_prefix_forms_remain_uninterpreted() {
         let mut snapshot = before_snapshot();
         let entry = registry_entry(&mut snapshot);
         entry.key_path = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce".to_owned();
-        entry.value_name = value_name.to_owned();
+        entry.value_name = RegistryValueName::decoded(value_name);
         entry.startup_kind = RegistryStartupKind::RunOnce;
         entry.run_once_prefix = Some(RunOncePrefixSemantics::Undocumented);
 
@@ -110,8 +110,8 @@ fn undocumented_run_once_prefix_forms_remain_uninterpreted() {
             .validate()
             .unwrap_or_else(|error| panic!("{value_name} must remain valid raw evidence: {error}"));
         assert_eq!(
-            registry_entry(&mut snapshot).value_name.as_str(),
-            value_name
+            registry_entry(&mut snapshot).value_name.decoded_value(),
+            Some(value_name)
         );
     }
 }
@@ -132,7 +132,7 @@ fn inconsistent_run_once_evidence_is_rejected() {
         let mut snapshot = before_snapshot();
         let entry = registry_entry(&mut snapshot);
         entry.key_path = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce".to_owned();
-        entry.value_name = value_name.to_owned();
+        entry.value_name = RegistryValueName::decoded(value_name);
         entry.startup_kind = RegistryStartupKind::RunOnce;
         entry.run_once_prefix = semantics;
 
@@ -175,21 +175,30 @@ fn full_run_once_value_names_keep_distinct_observation_identities() {
     let template = snapshot.observations.remove(template_index);
 
     let cases = [
-        ("Foo", RunOncePrefixSemantics::NoDocumentedPrefix),
-        ("!Foo", RunOncePrefixSemantics::DeferDeletionUntilAfterRun),
-        ("*Foo", RunOncePrefixSemantics::RunInSafeMode),
+        (
+            "Foo",
+            RunOncePrefixSemantics::NoDocumentedPrefix,
+            "e300b1f49c3d61d973561e229a5b174ff27312a0df7c72801f6db2e8bd256a9e",
+        ),
+        (
+            "!Foo",
+            RunOncePrefixSemantics::DeferDeletionUntilAfterRun,
+            "246bb80ad302e1d428b58825421b6ec88d372e0e7d68dcf60185332d7607d833",
+        ),
+        (
+            "*Foo",
+            RunOncePrefixSemantics::RunInSafeMode,
+            "23c891afd1729eb817401b675d713aea7b9acfa5e9be7103a3c3e522c7edec94",
+        ),
     ];
-    for (value_name, semantics) in cases {
+    for (value_name, semantics, canonical_id) in cases {
         let mut observation = template.clone();
-        observation.canonical_id = format!(
-            "hkcu|shared|software\\microsoft\\windows\\currentversion\\runonce|{}",
-            value_name.to_ascii_lowercase()
-        );
+        observation.canonical_id = canonical_id.to_owned();
         let Artifact::RegistryStartup(entry) = &mut observation.artifact else {
             unreachable!("template must contain Registry evidence");
         };
         entry.key_path = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce".to_owned();
-        entry.value_name = value_name.to_owned();
+        entry.value_name = RegistryValueName::decoded(value_name);
         entry.startup_kind = RegistryStartupKind::RunOnce;
         entry.run_once_prefix = Some(semantics);
         snapshot.observations.push(observation);
@@ -205,7 +214,46 @@ fn full_run_once_value_names_keep_distinct_observation_identities() {
         .map(|observation| observation.key())
         .collect();
     assert_eq!(keys.len(), 3);
-    assert!(keys.iter().any(|key| key.canonical_id.ends_with("|foo")));
-    assert!(keys.iter().any(|key| key.canonical_id.ends_with("|!foo")));
-    assert!(keys.iter().any(|key| key.canonical_id.ends_with("|*foo")));
+    for expected in cases.map(|(_, _, canonical_id)| canonical_id) {
+        assert!(keys.iter().any(|key| key.canonical_id == expected));
+    }
+}
+
+#[test]
+fn unnamed_value_is_stable_evidence_not_marker_corruption() {
+    let mut snapshot = before_snapshot();
+    let entry = registry_entry(&mut snapshot);
+    entry.key_path = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce".to_owned();
+    entry.value_name = RegistryValueName::decoded("");
+    entry.startup_kind = RegistryStartupKind::RunOnce;
+    entry.run_once_prefix = Some(RunOncePrefixSemantics::NoDocumentedPrefix);
+
+    snapshot
+        .validate()
+        .expect("the unnamed value must remain valid evidence");
+    let json = serde_json::to_string(&snapshot).expect("Snapshot must serialize");
+    let reparsed: Snapshot = serde_json::from_str(&json).expect("Snapshot must deserialize");
+    assert_eq!(reparsed, snapshot);
+}
+
+#[test]
+fn invalid_utf16_value_name_round_trips_losslessly() {
+    let units = [u16::from(b'!'), 0xd800, u16::from(b'X')];
+    let name = RegistryValueName::from_utf16_units(&units);
+    assert!(matches!(name, RegistryValueName::InvalidUtf16 { .. }));
+    assert_eq!(name.utf16_units().as_deref(), Some(units.as_slice()));
+
+    let mut snapshot = before_snapshot();
+    let entry = registry_entry(&mut snapshot);
+    entry.key_path = "Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce".to_owned();
+    entry.value_name = name;
+    entry.startup_kind = RegistryStartupKind::RunOnce;
+    entry.run_once_prefix = Some(RunOncePrefixSemantics::DeferDeletionUntilAfterRun);
+    snapshot
+        .validate()
+        .expect("invalid UTF-16 name evidence must remain lossless");
+
+    let json = serde_json::to_string(&snapshot).expect("Snapshot must serialize");
+    let reparsed: Snapshot = serde_json::from_str(&json).expect("Snapshot must deserialize");
+    assert_eq!(reparsed, snapshot);
 }

@@ -1,7 +1,8 @@
 use systemdiff_core::{
-    Artifact, CollectorStatus, REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES, RegistryDecodedValue,
-    RegistryHive, RegistryRawEvidence, RegistryStartupEntry, RegistryStartupKind,
-    RegistryValueDecoding, RegistryView, Snapshot, SnapshotValidationError,
+    Artifact, CollectionOutcome, CollectorStatus, REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES,
+    RegistryDecodedValue, RegistryHive, RegistryRawEvidence, RegistryStartupEntry,
+    RegistryStartupKind, RegistryValueDecoding, RegistryValueName, RegistryView, Snapshot,
+    SnapshotMetadata, SnapshotValidationError, assemble_snapshot,
 };
 
 fn before_snapshot() -> Snapshot {
@@ -18,6 +19,49 @@ fn draft_v1_fixture_validates_and_round_trips() {
     let reparsed: Snapshot = serde_json::from_str(&json).expect("snapshot must deserialize");
 
     assert_eq!(reparsed, snapshot);
+}
+
+#[test]
+fn snapshot_assembly_is_deterministic_across_collector_and_observation_order() {
+    let source = before_snapshot();
+    let outcomes: Vec<_> = source
+        .collectors
+        .iter()
+        .cloned()
+        .map(|run| {
+            let observations: Vec<_> = source
+                .observations
+                .iter()
+                .filter(|observation| observation.collector_id == run.id)
+                .cloned()
+                .collect();
+            CollectionOutcome { run, observations }
+        })
+        .collect();
+    let mut shuffled = outcomes.clone();
+    shuffled.reverse();
+    for outcome in &mut shuffled {
+        outcome.run.coverage.reverse();
+        outcome.run.diagnostics.reverse();
+        outcome.observations.reverse();
+    }
+    let metadata = SnapshotMetadata {
+        systemdiff_version: source.systemdiff_version.clone(),
+        captured_at: source.captured_at.clone(),
+        host: source.host.clone(),
+        privilege: source.privilege,
+        redaction: source.redaction.clone(),
+    };
+    let assembled = assemble_snapshot(metadata.clone(), outcomes)
+        .expect("fixture outcomes must assemble into a valid Snapshot");
+    let shuffled = assemble_snapshot(metadata, shuffled)
+        .expect("shuffled fixture outcomes must assemble into a valid Snapshot");
+
+    assert_eq!(assembled, shuffled);
+    assert_eq!(
+        serde_json::to_string_pretty(&assembled).expect("assembled Snapshot must serialize"),
+        serde_json::to_string_pretty(&shuffled).expect("shuffled Snapshot must serialize")
+    );
 }
 
 #[test]
@@ -130,7 +174,7 @@ fn registry_decoding_round_trips_typed_values_and_compact_raw_evidence() {
             hive: RegistryHive::CurrentUser,
             registry_view: RegistryView::Shared,
             key_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".to_owned(),
-            value_name: "Synthetic".to_owned(),
+            value_name: RegistryValueName::decoded("Synthetic"),
             startup_kind: RegistryStartupKind::Run,
             run_once_prefix: None,
             value_type,
@@ -151,7 +195,7 @@ fn registry_decoding_round_trips_typed_values_and_compact_raw_evidence() {
         hive: RegistryHive::CurrentUser,
         registry_view: RegistryView::Shared,
         key_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run".to_owned(),
-        value_name: "Synthetic".to_owned(),
+        value_name: RegistryValueName::decoded("Synthetic"),
         startup_kind: RegistryStartupKind::Run,
         run_once_prefix: None,
         value_type: 4,
@@ -278,4 +322,38 @@ fn unavailable_scope_cannot_emit_observations_from_partial_collector() {
         snapshot.validate(),
         Err(SnapshotValidationError::ObservationFromUnavailableScope { .. })
     ));
+}
+
+#[test]
+fn scoped_diagnostic_must_reference_collector_coverage() {
+    let mut snapshot = before_snapshot();
+    let tasks = snapshot
+        .collectors
+        .iter_mut()
+        .find(|run| run.id == "windows.scheduled_tasks")
+        .expect("scheduled tasks run must exist");
+    tasks.diagnostics[0].scope_id = Some("unknown.scope".to_owned());
+
+    assert!(matches!(
+        snapshot.validate(),
+        Err(SnapshotValidationError::DiagnosticReferencesUnknownScope { .. })
+    ));
+}
+
+#[test]
+fn missing_diagnostic_scope_remains_a_valid_collector_wide_diagnostic() {
+    let mut document: serde_json::Value =
+        serde_json::from_str(include_str!("../../../fixtures/snapshots/before-v1.json"))
+            .expect("fixture JSON must deserialize");
+    document["collectors"][2]["diagnostics"][0]
+        .as_object_mut()
+        .expect("diagnostic must be an object")
+        .remove("scope_id");
+
+    let snapshot: Snapshot = serde_json::from_value(document)
+        .expect("missing optional scope_id must remain readable as collector-wide");
+    snapshot
+        .validate()
+        .expect("collector-wide diagnostic must remain valid");
+    assert_eq!(snapshot.collectors[2].diagnostics[0].scope_id, None);
 }

@@ -5,7 +5,7 @@
 **SystemDiff 帮你看清 Windows 系统发生了什么变化——每一条结论都附带可查证的证据。**
 
 > [!IMPORTANT]
-> SystemDiff 目前处于项目搭建阶段，尚无可分发的正式版本，也没有真正调用操作系统 API 的 Collector。当前代码仅用于验证 schema 草案、确定性 Diff、报告生成和贡献流程；它现在还不是一个能用的系统扫描工具。
+> SystemDiff 仍是没有面向普通用户发行包的预发布软件。开发版 CLI 现在已经能通过第一个真实、只读的 Collector 采集 Windows 官方文档中的 Run/RunOnce 启动项，并比较两份 Snapshot。Windows 服务、计划任务、解释规则、脱敏和桌面应用均尚未实现。
 
 ## 为什么要做 SystemDiff？
 
@@ -36,7 +36,7 @@ ExampleApp 设置
   通常无害
 ```
 
-以上只是效果示意，不代表目前已有对应的检测能力。后续高级用户将能够查看精确的注册表路径、服务/任务配置、变更前后的原始值、Collector 和 rule ID、结构化 JSON，以及（在支持后）哈希和签名元数据。
+以上只是效果示意，不代表目前已有对应的检测能力。当前的注册表 Diff 已可显示精确路径、value name/type、类型化解码状态、完整 value 的 SHA-256、Collector/scope identity 和结构化 JSON；服务/任务证据、规则和签名元数据仍在计划中。
 
 SystemDiff 不会把“不常见”直接等同于“恶意”。解释始终建立在证据之上，而不是取代证据。
 
@@ -52,7 +52,7 @@ SystemDiff 不会把“不常见”直接等同于“恶意”。解释始终建
 
 详见[产品原则](docs/product-principles.md)和[威胁模型](docs/threat-model.md)。
 
-## v0.1 计划流程
+## 当前 pre-v0.1 流程
 
 ```powershell
 systemdiff snapshot -o before.json
@@ -63,7 +63,9 @@ systemdiff snapshot -o after.json
 systemdiff diff before.json after.json
 ```
 
-`snapshot` 命令在搭建阶段有意没有实现。v0.1 只有在整条链路稳定工作后才算完成。
+从源代码构建后，这条链路目前可在受支持的 Windows 系统上处理 Registry Run/RunOnce 证据。Snapshot 尚未脱敏，可能包含敏感的命令字符串和路径。只有所需 Collector 和完整流程都可靠后，v0.1 才算完成。
+
+当前最低支持 Windows 10 version 1709 或 Windows Server 2016 version 1709。ARM64 会采集当前用户的 Shared Registry scope；在能够正确表达并测试相关 view semantics 前，v1 会明确将 HKLM alternate-view coverage 报告为 `unsupported`。
 
 v0.1 的 Diff 只用于比较同一套 Windows 系统、同一用户/主体上下文中的 before/after Snapshot；跨主机或跨用户身份关联不在当前范围内。
 
@@ -71,7 +73,7 @@ v0.1 的 Diff 只用于比较同一套 Windows 系统、同一用户/主体上�
 
 | Collector | v0.1 范围 | 当前状态 |
 | --- | --- | --- |
-| 注册表启动项 | 官方文档列出的 Run/RunOnce 位置，并正确处理注册表视图（Registry view） | 计划中 |
+| 注册表启动项 | 官方文档列出的 Run/RunOnce 位置和明确的 Registry view | 已在开发版 CLI 中实现 |
 | Windows 服务 | 稳定的 Win32 服务配置；不含驱动 | 计划中 |
 | 计划任务 | Task Scheduler 2.0 配置，并明确显示因权限不足造成的覆盖缺口 | 计划中 |
 
@@ -97,7 +99,7 @@ cargo run --locked -p systemdiff-cli -- diff --json fixtures/snapshots/before-v1
 cargo run --locked -p systemdiff-cli -- collectors
 ```
 
-本 workspace 已在真实的 stable Rust MSVC toolchain 下验证通过。确切的验证状态和剩余产品限制见 [.agent/PROJECT_STATE.md](.agent/PROJECT_STATE.md)。
+本 workspace 和 opt-in synthetic HKCU Registry E2E 已在真实的 stable Rust MSVC toolchain 下验证。E2E harness 只用于测试，需要两项显式 gate，会拒绝覆盖现有 value，默认 CI 不会运行。确切的验证状态和剩余产品限制见 [.agent/PROJECT_STATE.md](.agent/PROJECT_STATE.md)。
 
 ## 架构
 

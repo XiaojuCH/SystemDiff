@@ -21,7 +21,27 @@
       "status": "complete",
       "coverage": [
         {
-          "scope_id": "current_user.shared",
+          "scope_id": "current_user.shared.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "current_user.shared.run_once",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry32.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry32.run_once",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry64.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry64.run_once",
           "status": "complete"
         }
       ],
@@ -54,7 +74,8 @@
           "code": "task_folder_access_denied",
           "message": "A synthetic folder was inaccessible.",
           "stage": "enumerate_folder",
-          "native_code": -2147024891
+          "native_code": -2147024891,
+          "scope_id": "current_token"
         }
       ]
     }
@@ -67,15 +88,18 @@
     {
       "collector_id": "windows.registry.startup",
       "collector_version": 1,
-      "scope_id": "current_user.shared",
-      "canonical_id": "hkcu|shared|software\\microsoft\\windows\\currentversion\\run|exampleapp",
+      "scope_id": "current_user.shared.run",
+      "canonical_id": "05b14fce21e4232e9c47bc29ba58737949d4c17c78c8f2efb289128644c60603",
       "artifact": {
         "kind": "registry_startup",
         "evidence": {
           "hive": "current_user",
           "registry_view": "shared",
           "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
-          "value_name": "ExampleApp",
+          "value_name": {
+            "encoding": "decoded",
+            "value": "ExampleApp"
+          },
           "startup_kind": "run",
           "run_once_prefix": null,
           "value_type": 1,

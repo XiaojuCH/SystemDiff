@@ -7,4 +7,15 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+sha2.workspace = true
 systemdiff-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+] }
+windows-version.workspace = true

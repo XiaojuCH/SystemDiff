@@ -18,7 +18,7 @@ Out of scope:
 - defending evidence integrity after kernel compromise;
 - credential dumping, exploitation, persistence creation, AV/EDR bypass, or remediation features, which are prohibited by `docs/product-principles.md` and `AGENTS.md`;
 - cloud services, multi-tenancy, authentication, and telemetry, which do not exist in the MVP;
-- a final assessment of Collector implementations that have not yet been written.
+- a final assessment of the still-unimplemented Services and Scheduled Tasks Collectors.
 
 Assumptions:
 
@@ -28,9 +28,11 @@ Assumptions:
 - reports may be shared publicly despite warnings;
 - the future desktop WebView is less trusted than the Rust core process.
 
+The production CLI and Collector API remain read-only. A separate developer E2E harness can write one synthetic current-user Run value only after an environment-variable gate and explicit switch; it refuses an existing value and verifies exact type/data before cleanup. Default CI does not run it, and no Registry write binding is reachable from production Rust code.
+
 Open questions that may change rankings:
 
-- final Windows support matrix and installer/update mechanism;
+- installer/update mechanism and any future expansion beyond the current Windows 10/Server version 1709 minimum;
 - whether snapshots will ever be cryptographically signed or compared across machines;
 - final Tauri command/capability set;
 - public security contact and release-signing process.
@@ -50,7 +52,7 @@ Open questions that may change rankings:
 
 ### Data flows and trust boundaries
 
-- Windows OS -> Windows collectors: registry bytes, service buffers, task COM/XML via local Win32/COM; current-token ACLs apply; safe wrappers must validate lengths, encodings, HRESULT/Win32 outcomes, and concurrent mutation.
+- Windows OS -> Windows collectors: the implemented Registry adapter reads native buffers through current-token Win32 access; future service/task adapters will add SCM and COM. Safe wrappers validate lengths, encodings, numeric Win32 outcomes, resource budgets, and concurrent mutation.
 - Snapshot files -> CLI/core parser: attacker-controlled local JSON via file I/O; a 64 MiB bounded read and header-first schema route precede full Snapshot construction, while typed validation and identity uniqueness protect later processing. Finer object, string, nesting, and count limits remain future hardening.
 - Core evidence -> diff/rules: typed in-process values; compatibility, coverage, deterministic identity, and no evidence execution are the guarantees.
 - Diff/findings -> report files/terminal: privacy-sensitive local output; destination choice is user-controlled, and future sanitization must be explicit.
@@ -134,9 +136,9 @@ flowchart LR
 
 | Threat ID | Threat source | Prerequisites | Threat action | Impact | Impacted assets | Existing controls (evidence) | Gaps | Recommended mitigations | Detection ideas | Likelihood | Impact severity | Priority |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| TM-001 | Local changed software | Can race, deny, or influence a collected scope | Cause incomplete evidence to appear complete | False Added/Removed and incorrect findings | Diff and coverage integrity | Explicit statuses and no-false-removal rule (`docs/adr/0004-collector-failure-and-coverage.md`) | Collectors not implemented | Per-scope coverage, bounded retry, native diagnostics, complete->partial regression fixtures | Count coverage changes and surface prominent report warnings | High | High | High |
+| TM-001 | Local changed software | Can race, deny, or influence a collected scope | Cause incomplete evidence to appear complete | False Added/Removed and incorrect findings | Diff and coverage integrity | Registry scopes have bounded retries, before/after metadata checks, resource/permission diagnostics, and no-false-removal coverage semantics (`docs/adr/0004-collector-failure-and-coverage.md`) | Registry enumeration is best-effort, not atomic; later Collectors remain unimplemented | Preserve per-scope coverage, keep bounded native diagnostics, and add Collector-specific race fixtures | Count coverage changes and surface prominent report warnings | Medium | High | High |
 | TM-002 | Snapshot provider | Can supply arbitrary local JSON | Exhaust memory/CPU or exploit parser assumptions | CLI denial of service; misleading evidence | Availability and diff integrity | 64 MiB bounded file read, header-first version routing, typed schema, and duplicate rejection (`docs/data-format.md`) | No object-count, string-size, nesting, or parser-fuzz limits yet | Add finer structural limits only from measured need; fuzz parsers later | Structured parse failure codes; resource-limit tests | Medium | Medium | Medium |
-| TM-003 | Windows data/API edge case | Collector handles raw buffers/COM values | Trigger unsafe length, lifetime, or encoding bug | Crash, memory corruption, corrupted evidence | Token, evidence, availability | Unsafe isolated to Windows crate (`docs/architecture.md`) | Native adapters absent | Minimal audited unsafe blocks, `windows-rs`, two-call buffer patterns, RAII handles/COM, fuzz pure decoders | Windows crash fixtures and sanitizer/fuzz jobs where practical | Medium | High | High |
+| TM-003 | Windows data/API edge case | Collector handles raw buffers/COM values | Trigger unsafe length, lifetime, or encoding bug | Crash, memory corruption, corrupted evidence | Token, evidence, availability | Unsafe is isolated to a narrow `windows-rs` Registry adapter with checked units/lengths, initialized buffers, bounded growth, RAII handles, strict pure decoders, and full native-byte hashing (`docs/architecture.md`) | No fuzzing; Services/Tasks native adapters not implemented | Keep unsafe blocks minimal and reviewed; fuzz pure decoders; apply equivalent RAII/bounds discipline to future SCM/COM work | Windows regression fixtures and sanitizer/fuzz jobs where practical | Medium | High | High |
 | TM-004 | User/workflow mistake | Real report is shared publicly | Publish sensitive raw evidence | Lasting privacy disclosure | Snapshot/report confidentiality | Sensitive-by-default and redaction metadata (`docs/product-principles.md`) | Sanitizer absent | Blocking share warning in UI, documented manual review, policy-versioned pure sanitizer, synthetic issue fixtures | Scan project issues for accidental reports; sanitizer golden tests | High | High | High |
 | TM-005 | Future compromised WebView | Desktop exposes broad command/capability | Invoke native execution/write or read excess data | Privilege misuse and boundary violation | Token, host integrity, evidence confidentiality | Proposed narrow IPC (`docs/adr/0003-desktop-stack.md`) | Desktop not yet threat-tested | Bundled content, restrictive CSP, explicit commands, no generic shell/fs/http plugins, command authorization tests | Log command IDs without sensitive payloads; capability review in CI | Low pre-v0.2 | High | Medium |
 | TM-006 | Rule author or malformed evidence | Rule sees ambiguous command/path data | Overstate heuristic or detach finding from evidence | Misleading/fearmongering output | Finding integrity and user trust | Evidence-before-judgment principle; findings reference changes (`docs/architecture.md`) | No real rule corpus/reviewer rubric | Stable reason IDs, calibrated classifications, explanation keys, counterexample fixtures, independent review | Golden finding snapshots and rule precision review | Medium | Medium | Medium |

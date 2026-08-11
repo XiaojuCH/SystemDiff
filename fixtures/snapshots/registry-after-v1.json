@@ -1,0 +1,85 @@
+{
+  "document_type": "systemdiff.snapshot",
+  "schema_version": 1,
+  "systemdiff_version": "0.0.0-dev",
+  "captured_at": "2026-08-11T00:01:00Z",
+  "host": {
+    "windows_version": "synthetic-windows",
+    "windows_build": "26100",
+    "architecture": "x86_64"
+  },
+  "privilege": "standard_user",
+  "enabled_collectors": [
+    "windows.registry.startup"
+  ],
+  "collectors": [
+    {
+      "id": "windows.registry.startup",
+      "version": 1,
+      "status": "complete",
+      "coverage": [
+        {
+          "scope_id": "current_user.shared.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "current_user.shared.run_once",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry32.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry32.run_once",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry64.run",
+          "status": "complete"
+        },
+        {
+          "scope_id": "local_machine.registry64.run_once",
+          "status": "complete"
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "redaction": {
+    "status": "unredacted",
+    "policy": null
+  },
+  "observations": [
+    {
+      "collector_id": "windows.registry.startup",
+      "collector_version": 1,
+      "scope_id": "current_user.shared.run",
+      "canonical_id": "603cab62a78285fb7d508ee634283f1a83d391b0de70580443a14aa1ab38c474",
+      "artifact": {
+        "kind": "registry_startup",
+        "evidence": {
+          "hive": "current_user",
+          "registry_view": "shared",
+          "key_path": "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+          "value_name": {
+            "encoding": "decoded",
+            "value": "SystemDiffSyntheticE2E"
+          },
+          "startup_kind": "run",
+          "run_once_prefix": null,
+          "value_type": 1,
+          "content_sha256": "f22ca9d0239764d62b2306f81fbe3c88cb5e9c9cc0306a9d61f6936766036357",
+          "decoding": {
+            "status": "decoded",
+            "value": {
+              "kind": "string",
+              "value": "C:\\Synthetic\\example.exe"
+            }
+          },
+          "raw_evidence": null
+        }
+      }
+    }
+  ]
+}
