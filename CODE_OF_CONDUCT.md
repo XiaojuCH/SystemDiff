@@ -58,11 +58,12 @@ representative at an online or offline event.
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported using the private-contact procedure in `SECURITY.md`. Do not include
-sensitive personal details in a public issue. Before public launch, the
-maintainer must publish a real private conduct-reporting channel; no placeholder
-email address is presented as monitored.
+SystemDiff does not currently publish a dedicated private conduct-reporting
+channel. GitHub Private Vulnerability Reporting and the process in `SECURITY.md`
+are reserved for product security and must not be used for conduct or harassment
+reports. Do not disclose sensitive personal information in a public Issue. A
+genuine, monitored private channel remains an open governance task, and this
+document will be updated when one is available.
 
 All complaints will be reviewed and investigated promptly and fairly.
 Community leaders are obligated to respect the privacy and security of the
