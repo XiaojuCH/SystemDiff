@@ -8,7 +8,9 @@ SystemDiff has no public release yet. The bootstrap code and draft schema do not
 
 Do not include vulnerability details, real snapshots, task XML, tokens, personal data, or sensitive logs in a public issue.
 
-The public repository must enable GitHub Private Vulnerability Reporting before launch. Until a private channel is published, use a private channel you already have with the maintainer. If none exists, open a minimal public issue asking the maintainer to establish private contact, without disclosing technical details.
+Report product security vulnerabilities through [GitHub Private Vulnerability Reporting](https://github.com/XiaojuCH/SystemDiff/security/advisories/new), which is enabled for this repository and is the preferred private reporting channel.
+
+Private Vulnerability Reporting is for product security vulnerabilities only. It is not a Code of Conduct, harassment, or other community-conduct reporting channel.
 
 Include, when safe:
 

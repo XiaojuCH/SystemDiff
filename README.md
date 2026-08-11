@@ -2,6 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[![CI](https://github.com/XiaojuCH/SystemDiff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/XiaojuCH/SystemDiff/actions/workflows/ci.yml)
+
 **SystemDiff shows what changed on a Windows system, with plain-language explanations backed by inspectable evidence.**
 
 > [!IMPORTANT]
@@ -65,6 +67,8 @@ systemdiff diff before.json after.json
 
 The `snapshot` command is intentionally not implemented in the bootstrap. v0.1 will be complete only when this pipeline works reliably.
 
+The draft v0.1 comparison model assumes that both snapshots come from the same Windows installation and the same user/principal context. Cross-host and cross-user identity are intentionally out of scope.
+
 ## MVP scope
 
 | Collector | v0.1 scope | Current status |
@@ -115,4 +119,4 @@ SystemDiff is defensive auditing software. Credential dumping, token/cookie extr
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE). The maintainer should confirm this governance choice before public launch.
+Licensed under the [Apache License 2.0](LICENSE).
