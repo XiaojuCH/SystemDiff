@@ -1,0 +1,10 @@
+[package]
+name = "systemdiff-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+systemdiff-core.workspace = true

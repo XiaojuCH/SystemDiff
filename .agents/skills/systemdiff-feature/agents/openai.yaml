@@ -1,0 +1,4 @@
+interface:
+  display_name: "SystemDiff Feature"
+  short_description: "Implement a focused SystemDiff feature safely"
+  default_prompt: "Use $systemdiff-feature to implement a non-trivial SystemDiff feature with tests and review."

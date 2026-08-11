@@ -1,0 +1,4 @@
+interface:
+  display_name: "SystemDiff Release"
+  short_description: "Validate a SystemDiff release candidate safely"
+  default_prompt: "Use $systemdiff-release to validate and prepare this SystemDiff release candidate."

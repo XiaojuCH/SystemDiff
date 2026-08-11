@@ -1,0 +1,51 @@
+# Rust
+target/
+**/*.rs.bk
+*.pdb
+# Cargo.lock is intentionally tracked because the workspace ships a binary.
+
+# Node and frontend build output
+**/node_modules/
+**/dist/
+**/coverage/
+**/.vite/
+**/.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Tauri local output
+**/.tauri/
+
+# Editors and IDEs
+.idea/
+.vscode/
+.vs/
+*.code-workspace
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+
+# Local environment and temporary output
+*.tmp
+*.temp
+*.log
+.env
+.env.*
+!.env.example
+*.env
+*.local
+*.key
+*.pem
+*.p12
+*.pfx

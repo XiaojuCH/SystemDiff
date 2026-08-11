@@ -1,0 +1,4 @@
+interface:
+  display_name: "SystemDiff PR"
+  short_description: "Prepare or review a focused SystemDiff PR"
+  default_prompt: "Use $systemdiff-pr to prepare or review this SystemDiff pull request."

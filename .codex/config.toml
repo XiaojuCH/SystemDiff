@@ -1,0 +1,6 @@
+# Keep project configuration small. Custom roles are discovered from
+# .codex/agents/*.toml, and repository skills from .agents/skills/.
+# Models and reasoning effort intentionally inherit from the parent session.
+
+[agents]
+max_concurrent_threads_per_session = 3

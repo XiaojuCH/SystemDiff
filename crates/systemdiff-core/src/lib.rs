@@ -1,0 +1,644 @@
+#![forbid(unsafe_code)]
+
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::error::Error;
+use std::fmt;
+
+pub const SNAPSHOT_DOCUMENT_TYPE: &str = "systemdiff.snapshot";
+pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub const REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES: u64 = 4_096;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Snapshot {
+    pub document_type: String,
+    pub schema_version: u32,
+    pub systemdiff_version: String,
+    pub captured_at: String,
+    pub host: HostMetadata,
+    pub privilege: PrivilegeState,
+    pub enabled_collectors: Vec<String>,
+    pub collectors: Vec<CollectorRun>,
+    pub redaction: RedactionMetadata,
+    pub observations: Vec<Observation>,
+}
+
+impl Snapshot {
+    pub fn validate(&self) -> Result<(), SnapshotValidationError> {
+        if self.document_type != SNAPSHOT_DOCUMENT_TYPE {
+            return Err(SnapshotValidationError::UnexpectedDocumentType {
+                found: self.document_type.clone(),
+            });
+        }
+        if self.schema_version != SNAPSHOT_SCHEMA_VERSION {
+            return Err(SnapshotValidationError::UnsupportedSchemaVersion {
+                found: self.schema_version,
+            });
+        }
+        if self.systemdiff_version.trim().is_empty() {
+            return Err(SnapshotValidationError::EmptyField("systemdiff_version"));
+        }
+        if self.captured_at.trim().is_empty() {
+            return Err(SnapshotValidationError::EmptyField("captured_at"));
+        }
+
+        let mut enabled = BTreeSet::new();
+        for collector_id in &self.enabled_collectors {
+            if collector_id.trim().is_empty() {
+                return Err(SnapshotValidationError::EmptyField("enabled_collectors[]"));
+            }
+            if !enabled.insert(collector_id.as_str()) {
+                return Err(SnapshotValidationError::DuplicateCollector(
+                    collector_id.clone(),
+                ));
+            }
+        }
+
+        let mut runs = BTreeMap::new();
+        for run in &self.collectors {
+            if run.id.trim().is_empty() {
+                return Err(SnapshotValidationError::EmptyField("collectors[].id"));
+            }
+            if run.version == 0 {
+                return Err(SnapshotValidationError::InvalidCollectorVersion {
+                    collector_id: run.id.clone(),
+                });
+            }
+            if runs.insert(run.id.as_str(), run).is_some() {
+                return Err(SnapshotValidationError::DuplicateCollector(run.id.clone()));
+            }
+            if !enabled.contains(run.id.as_str()) {
+                return Err(SnapshotValidationError::UnexpectedCollectorRun(
+                    run.id.clone(),
+                ));
+            }
+
+            if run.coverage.is_empty() {
+                return Err(SnapshotValidationError::EmptyCollectorCoverage(
+                    run.id.clone(),
+                ));
+            }
+
+            let all_scopes_complete = run
+                .coverage
+                .iter()
+                .all(|coverage| coverage.status == CollectorStatus::Complete);
+            let any_scope_complete = run
+                .coverage
+                .iter()
+                .any(|coverage| coverage.status == CollectorStatus::Complete);
+            let status_is_consistent = match run.status {
+                CollectorStatus::Complete => all_scopes_complete,
+                CollectorStatus::Partial => !all_scopes_complete,
+                CollectorStatus::PermissionDenied
+                | CollectorStatus::Unavailable
+                | CollectorStatus::Unsupported
+                | CollectorStatus::Failed => !any_scope_complete,
+            };
+            if !status_is_consistent {
+                return Err(SnapshotValidationError::InconsistentCollectorStatus {
+                    collector_id: run.id.clone(),
+                    status: run.status,
+                });
+            }
+
+            let mut scopes = BTreeSet::new();
+            for coverage in &run.coverage {
+                if coverage.scope_id.trim().is_empty() {
+                    return Err(SnapshotValidationError::EmptyField(
+                        "collectors[].coverage[].scope_id",
+                    ));
+                }
+                if !scopes.insert(coverage.scope_id.as_str()) {
+                    return Err(SnapshotValidationError::DuplicateCoverage {
+                        collector_id: run.id.clone(),
+                        scope_id: coverage.scope_id.clone(),
+                    });
+                }
+            }
+        }
+
+        for collector_id in &self.enabled_collectors {
+            if !runs.contains_key(collector_id.as_str()) {
+                return Err(SnapshotValidationError::MissingCollectorRun(
+                    collector_id.clone(),
+                ));
+            }
+        }
+
+        let mut observation_keys = BTreeSet::new();
+        for observation in &self.observations {
+            let run = runs.get(observation.collector_id.as_str()).ok_or_else(|| {
+                SnapshotValidationError::MissingCollectorRun(observation.collector_id.clone())
+            })?;
+            if run.version != observation.collector_version {
+                return Err(SnapshotValidationError::CollectorVersionMismatch {
+                    collector_id: observation.collector_id.clone(),
+                    run_version: run.version,
+                    observation_version: observation.collector_version,
+                });
+            }
+            if !matches!(
+                run.status,
+                CollectorStatus::Complete | CollectorStatus::Partial
+            ) {
+                return Err(
+                    SnapshotValidationError::ObservationFromUnavailableCollector {
+                        collector_id: observation.collector_id.clone(),
+                        status: run.status,
+                    },
+                );
+            }
+            let scope = run
+                .coverage
+                .iter()
+                .find(|coverage| coverage.scope_id == observation.scope_id)
+                .ok_or_else(|| SnapshotValidationError::MissingCoverage {
+                    collector_id: observation.collector_id.clone(),
+                    scope_id: observation.scope_id.clone(),
+                })?;
+            if !matches!(
+                scope.status,
+                CollectorStatus::Complete | CollectorStatus::Partial
+            ) {
+                return Err(SnapshotValidationError::ObservationFromUnavailableScope {
+                    collector_id: observation.collector_id.clone(),
+                    scope_id: observation.scope_id.clone(),
+                    status: scope.status,
+                });
+            }
+            if observation.canonical_id.trim().is_empty() {
+                return Err(SnapshotValidationError::EmptyField(
+                    "observations[].canonical_id",
+                ));
+            }
+            if let Artifact::RegistryStartup(entry) = &observation.artifact {
+                validate_registry_startup_entry(entry)?;
+            }
+
+            let key = observation.key();
+            if !observation_keys.insert(key.clone()) {
+                return Err(SnapshotValidationError::DuplicateObservation(key));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn scope_status(&self, key: &ArtifactKey) -> Option<CollectorStatus> {
+        self.collectors
+            .iter()
+            .find(|run| run.id == key.collector_id)
+            .and_then(|run| {
+                run.coverage
+                    .iter()
+                    .find(|coverage| coverage.scope_id == key.scope_id)
+                    .map(|coverage| match run.status {
+                        CollectorStatus::Complete | CollectorStatus::Partial => coverage.status,
+                        status => status,
+                    })
+            })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostMetadata {
+    pub windows_version: Option<String>,
+    pub windows_build: Option<String>,
+    pub architecture: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivilegeState {
+    StandardUser,
+    Elevated,
+    System,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RedactionMetadata {
+    pub status: RedactionStatus,
+    pub policy: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RedactionStatus {
+    Unredacted,
+    Redacted,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectorRun {
+    pub id: String,
+    pub version: u32,
+    pub status: CollectorStatus,
+    pub coverage: Vec<ScopeCoverage>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScopeCoverage {
+    pub scope_id: String,
+    pub status: CollectorStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CollectorStatus {
+    Complete,
+    Partial,
+    PermissionDenied,
+    Unavailable,
+    Unsupported,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Diagnostic {
+    pub code: String,
+    pub message: String,
+    pub stage: Option<String>,
+    pub native_code: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Observation {
+    pub collector_id: String,
+    pub collector_version: u32,
+    pub scope_id: String,
+    pub canonical_id: String,
+    pub artifact: Artifact,
+}
+
+impl Observation {
+    pub fn key(&self) -> ArtifactKey {
+        ArtifactKey {
+            collector_id: self.collector_id.clone(),
+            scope_id: self.scope_id.clone(),
+            artifact_kind: self.artifact.kind().to_owned(),
+            canonical_id: self.canonical_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct ArtifactKey {
+    pub collector_id: String,
+    pub scope_id: String,
+    pub artifact_kind: String,
+    pub canonical_id: String,
+}
+
+impl fmt::Display for ArtifactKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{}/{}/{}/{}",
+            self.collector_id, self.scope_id, self.artifact_kind, self.canonical_id
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "evidence", rename_all = "snake_case")]
+pub enum Artifact {
+    RegistryStartup(RegistryStartupEntry),
+    WindowsService(WindowsService),
+    ScheduledTask(ScheduledTask),
+}
+
+impl Artifact {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::RegistryStartup(_) => "registry_startup",
+            Self::WindowsService(_) => "windows_service",
+            Self::ScheduledTask(_) => "scheduled_task",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryStartupEntry {
+    pub hive: RegistryHive,
+    pub registry_view: RegistryView,
+    pub key_path: String,
+    pub value_name: String,
+    pub value_type: u32,
+    pub content_sha256: String,
+    pub decoding: RegistryValueDecoding,
+    pub raw_evidence: Option<RegistryRawEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RegistryValueDecoding {
+    Decoded { value: RegistryDecodedValue },
+    NotApplicable,
+    InvalidData,
+    UnsupportedType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RegistryDecodedValue {
+    String { value: String },
+    ExpandString { value: String },
+    MultiString { values: Vec<String> },
+    Dword { value: u32 },
+    Qword { value: u64 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryRawEvidence {
+    pub content_hex: String,
+    pub captured_byte_count: u64,
+    pub original_byte_count: u64,
+    pub truncated: bool,
+}
+
+fn validate_registry_startup_entry(
+    entry: &RegistryStartupEntry,
+) -> Result<(), SnapshotValidationError> {
+    if !is_lower_hex(&entry.content_sha256, 64) {
+        return Err(SnapshotValidationError::InvalidRegistryEvidence {
+            field: "content_sha256",
+        });
+    }
+
+    if let RegistryValueDecoding::Decoded { value } = &entry.decoding
+        && !decoded_value_matches_type(entry.value_type, value)
+    {
+        return Err(SnapshotValidationError::InvalidRegistryEvidence {
+            field: "value_type/decoding.value.kind",
+        });
+    }
+
+    if let Some(raw) = &entry.raw_evidence {
+        if raw.captured_byte_count > REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES {
+            return Err(SnapshotValidationError::InvalidRegistryEvidence {
+                field: "raw_evidence.captured_byte_count",
+            });
+        }
+        if raw.captured_byte_count > raw.original_byte_count
+            || raw.truncated != (raw.captured_byte_count < raw.original_byte_count)
+        {
+            return Err(SnapshotValidationError::InvalidRegistryEvidence {
+                field: "raw_evidence.truncation",
+            });
+        }
+        let expected_hex_len = raw.captured_byte_count as usize * 2;
+        if !is_lower_hex(&raw.content_hex, expected_hex_len) {
+            return Err(SnapshotValidationError::InvalidRegistryEvidence {
+                field: "raw_evidence.content_hex",
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn decoded_value_matches_type(value_type: u32, value: &RegistryDecodedValue) -> bool {
+    match value {
+        RegistryDecodedValue::String { .. } => value_type == 1,
+        RegistryDecodedValue::ExpandString { .. } => value_type == 2,
+        RegistryDecodedValue::MultiString { .. } => value_type == 7,
+        RegistryDecodedValue::Dword { .. } => matches!(value_type, 4 | 5),
+        RegistryDecodedValue::Qword { .. } => value_type == 11,
+    }
+}
+
+fn is_lower_hex(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryHive {
+    CurrentUser,
+    LocalMachine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryView {
+    Shared,
+    Native,
+    Registry32,
+    Registry64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsService {
+    pub service_name: String,
+    pub display_name: Option<String>,
+    pub service_type: u32,
+    pub start_type: u32,
+    pub error_control: u32,
+    pub binary_path: String,
+    pub account: Option<String>,
+    pub dependencies: Vec<String>,
+    pub delayed_auto_start: Option<bool>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduledTask {
+    pub task_path: String,
+    pub enabled: bool,
+    pub hidden: bool,
+    pub principal: Option<TaskPrincipal>,
+    pub actions: Vec<TaskAction>,
+    pub raw_xml: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskPrincipal {
+    pub identity: Option<String>,
+    pub logon_type: Option<String>,
+    pub run_level: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TaskAction {
+    Exec {
+        command: String,
+        arguments: Option<String>,
+        working_directory: Option<String>,
+    },
+    Other {
+        action_type: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectorDescriptor {
+    pub id: String,
+    pub version: u32,
+    pub description: String,
+    pub privilege: PrivilegeRequirement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivilegeRequirement {
+    StandardUser,
+    StandardUserPartial,
+    Administrator,
+    ObjectAclDependent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionContext {
+    pub privilege: PrivilegeState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionOutcome {
+    pub run: CollectorRun,
+    pub observations: Vec<Observation>,
+}
+
+pub trait Collector {
+    fn descriptor(&self) -> CollectorDescriptor;
+    fn collect(&self, context: &CollectionContext) -> CollectionOutcome;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SnapshotValidationError {
+    UnexpectedDocumentType {
+        found: String,
+    },
+    UnsupportedSchemaVersion {
+        found: u32,
+    },
+    EmptyField(&'static str),
+    InvalidCollectorVersion {
+        collector_id: String,
+    },
+    DuplicateCollector(String),
+    MissingCollectorRun(String),
+    UnexpectedCollectorRun(String),
+    EmptyCollectorCoverage(String),
+    InconsistentCollectorStatus {
+        collector_id: String,
+        status: CollectorStatus,
+    },
+    DuplicateCoverage {
+        collector_id: String,
+        scope_id: String,
+    },
+    MissingCoverage {
+        collector_id: String,
+        scope_id: String,
+    },
+    CollectorVersionMismatch {
+        collector_id: String,
+        run_version: u32,
+        observation_version: u32,
+    },
+    ObservationFromUnavailableCollector {
+        collector_id: String,
+        status: CollectorStatus,
+    },
+    ObservationFromUnavailableScope {
+        collector_id: String,
+        scope_id: String,
+        status: CollectorStatus,
+    },
+    InvalidRegistryEvidence {
+        field: &'static str,
+    },
+    DuplicateObservation(ArtifactKey),
+}
+
+impl fmt::Display for SnapshotValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnexpectedDocumentType { found } => {
+                write!(formatter, "unexpected document type: {found}")
+            }
+            Self::UnsupportedSchemaVersion { found } => {
+                write!(formatter, "unsupported snapshot schema version: {found}")
+            }
+            Self::EmptyField(field) => write!(formatter, "required field is empty: {field}"),
+            Self::InvalidCollectorVersion { collector_id } => {
+                write!(formatter, "collector {collector_id} has version 0")
+            }
+            Self::DuplicateCollector(collector_id) => {
+                write!(formatter, "duplicate collector: {collector_id}")
+            }
+            Self::MissingCollectorRun(collector_id) => {
+                write!(formatter, "missing collector run: {collector_id}")
+            }
+            Self::UnexpectedCollectorRun(collector_id) => {
+                write!(formatter, "collector run is not enabled: {collector_id}")
+            }
+            Self::EmptyCollectorCoverage(collector_id) => {
+                write!(
+                    formatter,
+                    "collector has no coverage scopes: {collector_id}"
+                )
+            }
+            Self::InconsistentCollectorStatus {
+                collector_id,
+                status,
+            } => write!(
+                formatter,
+                "collector aggregate status is inconsistent with scope coverage for {collector_id}: {status:?}"
+            ),
+            Self::DuplicateCoverage {
+                collector_id,
+                scope_id,
+            } => write!(
+                formatter,
+                "duplicate coverage scope for {collector_id}: {scope_id}"
+            ),
+            Self::MissingCoverage {
+                collector_id,
+                scope_id,
+            } => write!(
+                formatter,
+                "observation references missing coverage for {collector_id}: {scope_id}"
+            ),
+            Self::CollectorVersionMismatch {
+                collector_id,
+                run_version,
+                observation_version,
+            } => write!(
+                formatter,
+                "collector version mismatch for {collector_id}: run={run_version}, observation={observation_version}"
+            ),
+            Self::ObservationFromUnavailableCollector {
+                collector_id,
+                status,
+            } => write!(
+                formatter,
+                "collector {collector_id} has observations despite aggregate status {status:?}"
+            ),
+            Self::ObservationFromUnavailableScope {
+                collector_id,
+                scope_id,
+                status,
+            } => write!(
+                formatter,
+                "collector {collector_id} has observations in unavailable scope {scope_id}: {status:?}"
+            ),
+            Self::InvalidRegistryEvidence { field } => {
+                write!(formatter, "invalid Registry evidence: {field}")
+            }
+            Self::DuplicateObservation(key) => {
+                write!(formatter, "duplicate observation identity: {key}")
+            }
+        }
+    }
+}
+
+impl Error for SnapshotValidationError {}

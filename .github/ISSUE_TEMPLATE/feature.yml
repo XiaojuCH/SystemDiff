@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a user problem and a focused SystemDiff behavior
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the real workflow or pain point, not only a preferred implementation.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: user
+    attributes:
+      label: Intended user
+      options:
+        - Ordinary Windows user
+        - Developer or IT professional
+        - Security or forensic practitioner
+        - Contributor or maintainer
+        - More than one audience
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Explain inputs, outputs, plain-language experience, and technical evidence where relevant.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Product surface
+      options:
+        - CLI
+        - Desktop GUI
+        - CLI and desktop GUI
+        - JSON schema or library
+        - Documentation or contributor tooling
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include current workarounds and why they are insufficient.
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety, privilege, privacy, and compatibility
+      description: Note system writes, elevation, sensitive data, schema changes, or boundary concerns. "None known" is acceptable with reasoning.
+    validations:
+      required: true

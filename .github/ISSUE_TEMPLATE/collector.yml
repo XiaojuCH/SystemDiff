@@ -1,0 +1,73 @@
+name: New Collector proposal
+description: Propose one Windows evidence source before implementing it
+title: "[Collector]: "
+body:
+  - type: input
+    id: subsystem
+    attributes:
+      label: Windows subsystem
+      placeholder: Windows Firewall, Registry, Service Control Manager, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence to collect
+      description: List stable identity, raw evidence, comparison fields, and volatile fields.
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Official API or source
+      description: Link current Microsoft documentation and explain why the source is stable.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: privilege
+    attributes:
+      label: Expected privilege requirement
+      options:
+        - Standard user with complete coverage
+        - Standard user with partial coverage
+        - Administrator required
+        - Depends on object ACL or system configuration
+        - Unknown and needs research
+    validations:
+      required: true
+
+  - type: textarea
+    id: stability
+    attributes:
+      label: Stability and compatibility
+      description: Discuss Windows versions, architecture, WOW64/COM/localization, ordering, races, and API deprecation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy implications
+      description: Identify personal, host, network, software, command, XML, or secret-bearing fields and possible redaction.
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Synthetic sample output
+      description: Use invented values only. Do not paste a real system report.
+      render: json
+    validations:
+      required: true
+
+  - type: textarea
+    id: tests
+    attributes:
+      label: Test and failure strategy
+      description: Cover permission denial, partial/unavailable states, malformed data, deterministic ordering, and non-elevated CI.
+    validations:
+      required: true
