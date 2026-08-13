@@ -599,7 +599,7 @@ fn map_error(error: WindowsError, stage: &'static str) -> ServiceFailure {
         Some(ERROR_SERVICE_DOES_NOT_EXIST | ERROR_SERVICE_MARKED_FOR_DELETE)
     ) {
         failure(
-            ServiceFailureKind::DoesNotExist,
+            ServiceFailureKind::Other,
             "service_vanished_during_scan",
             "A service vanished during collection.",
             stage,

@@ -66,7 +66,6 @@ pub(crate) struct ServiceEnumeration {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ServiceFailureKind {
     AccessDenied,
-    DoesNotExist,
     InvalidData,
     ResourceLimit,
     Other,
