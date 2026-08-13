@@ -101,7 +101,13 @@ User-facing `en-US` and `zh-CN` strings are resolved outside the rule engine. A 
 
 ### Report
 
-Reports initially support deterministic JSON and a human-readable terminal view. Renderers receive typed results and an output stream. They do not rescan the system or execute evidence.
+Reports support three deliberately separate views over the same typed evidence:
+
+- the default human-readable terminal view leads with recognizable, factual changes and calm coverage limitations;
+- the explicit technical terminal view retains Collector version/scope, canonical identity, native evidence, hashes, decode status, and Snapshot diagnostics;
+- deterministic JSON preserves the versioned, language-neutral Diff wire document for tools.
+
+The human renderer consumes a `DiffDocument`. The technical renderer also receives the two already validated source Snapshots because Collector versions and scoped diagnostics are Snapshot evidence and are intentionally not duplicated into Diff v1. The CLI only selects a renderer; presentation stays in `systemdiff-report`. Terminal renderers escape control characters from untrusted observed strings and do not rely on color or ANSI formatting. Renderers do not rescan the system, execute evidence, or open arbitrary files.
 
 ## Windows collection strategy
 

@@ -9,4 +9,5 @@ publish = false
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+systemdiff-core.workspace = true
 systemdiff-diff.workspace = true
