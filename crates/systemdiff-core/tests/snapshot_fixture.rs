@@ -301,6 +301,7 @@ fn failed_aggregate_cannot_claim_complete_scope_coverage() {
         .find(|run| run.id == "windows.services")
         .expect("services run must exist");
     services.status = CollectorStatus::Failed;
+    services.coverage[0].status = CollectorStatus::Complete;
 
     assert!(matches!(
         snapshot.validate(),

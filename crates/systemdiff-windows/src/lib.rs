@@ -2,7 +2,48 @@
 
 mod platform;
 mod registry;
+mod services;
 mod win32;
+#[cfg(windows)]
+mod win32_services;
+
+#[cfg(not(windows))]
+mod win32_services {
+    use crate::services::{
+        RawServiceConfig, ServiceDataSource, ServiceEnumeration, ServiceFailure, ServiceFailureKind,
+    };
+
+    pub(crate) struct Win32ServiceSource;
+
+    impl Win32ServiceSource {
+        pub(crate) fn new() -> Self {
+            Self
+        }
+    }
+
+    impl ServiceDataSource for Win32ServiceSource {
+        fn enumerate(&mut self) -> Result<ServiceEnumeration, ServiceFailure> {
+            Err(unsupported())
+        }
+
+        fn read_config_once(
+            &mut self,
+            _service_name_utf16: &[u16],
+        ) -> Result<RawServiceConfig, ServiceFailure> {
+            Err(unsupported())
+        }
+    }
+
+    fn unsupported() -> ServiceFailure {
+        ServiceFailure {
+            kind: ServiceFailureKind::Other,
+            code: "service_platform_unsupported",
+            message: "Windows service collection is unavailable on this platform.",
+            stage: "platform",
+            native_code: None,
+        }
+    }
+}
 
 use std::error::Error;
 use std::fmt;
@@ -16,9 +57,12 @@ pub use registry::{
     MAX_REGISTRY_VALUES_PER_SCOPE, REGISTRY_STARTUP_COLLECTOR_ID,
     REGISTRY_STARTUP_COLLECTOR_VERSION, RegistryStartupCollector,
 };
+pub use services::{
+    MAX_SERVICE_EVIDENCE_BYTES, MAX_SERVICES_COLLECTOR_EVIDENCE_BYTES, MAX_SERVICES_PER_SCOPE,
+    SERVICES_COLLECTOR_ID, SERVICES_COLLECTOR_VERSION, WindowsServicesCollector,
+};
 use systemdiff_core::{CollectorDescriptor, PrivilegeRequirement};
 
-pub const SERVICES_COLLECTOR_ID: &str = "windows.services";
 pub const SCHEDULED_TASKS_COLLECTOR_ID: &str = "windows.scheduled_tasks";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,13 +84,8 @@ pub fn mvp_collector_plans() -> Vec<CollectorPlan> {
             implementation: ImplementationStatus::Implemented,
         },
         CollectorPlan {
-            descriptor: CollectorDescriptor {
-                id: SERVICES_COLLECTOR_ID.to_owned(),
-                version: 1,
-                description: "Win32 service configuration, excluding drivers.".to_owned(),
-                privilege: PrivilegeRequirement::ObjectAclDependent,
-            },
-            implementation: ImplementationStatus::Planned,
+            descriptor: services::descriptor(),
+            implementation: ImplementationStatus::Implemented,
         },
         CollectorPlan {
             descriptor: CollectorDescriptor {
@@ -71,7 +110,8 @@ pub fn capture_snapshot(
     let host = platform::host_metadata();
     let privilege = platform::privilege_state();
     let context = CollectionContext { privilege };
-    let outcome = RegistryStartupCollector.collect(&context);
+    let registry_outcome = RegistryStartupCollector.collect(&context);
+    let services_outcome = WindowsServicesCollector.collect(&context);
     assemble_snapshot(
         SnapshotMetadata {
             systemdiff_version,
@@ -83,7 +123,7 @@ pub fn capture_snapshot(
                 policy: None,
             },
         },
-        vec![outcome],
+        vec![registry_outcome, services_outcome],
     )
     .map_err(CaptureError::InvalidSnapshot)
 }
@@ -120,7 +160,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn collector_ids_are_unique_versioned_and_registry_is_implemented() {
+    fn collector_ids_are_unique_versioned_and_registry_and_services_are_implemented() {
         let plans = mvp_collector_plans();
         let ids: BTreeSet<_> = plans
             .iter()
@@ -130,10 +170,7 @@ mod tests {
         assert_eq!(plans.len(), ids.len());
         assert!(plans.iter().all(|plan| plan.descriptor.version > 0));
         assert_eq!(plans[0].implementation, ImplementationStatus::Implemented);
-        assert!(
-            plans[1..]
-                .iter()
-                .all(|plan| plan.implementation == ImplementationStatus::Planned)
-        );
+        assert_eq!(plans[1].implementation, ImplementationStatus::Implemented);
+        assert_eq!(plans[2].implementation, ImplementationStatus::Planned);
     }
 }

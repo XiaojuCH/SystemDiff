@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt;
@@ -11,6 +12,13 @@ pub const SNAPSHOT_DOCUMENT_TYPE: &str = "systemdiff.snapshot";
 pub const SNAPSHOT_SCHEMA_VERSION: u32 = 1;
 pub const REGISTRY_RAW_EVIDENCE_MAX_CAPTURE_BYTES: u64 = 4_096;
 pub const REGISTRY_VALUE_NAME_MAX_UTF16_UNITS: usize = 16_383;
+pub const WINDOWS_SERVICES_COLLECTOR_ID: &str = "windows.services";
+pub const WINDOWS_SERVICES_COLLECTOR_VERSION: u32 = 1;
+pub const WINDOWS_SERVICES_SCOPE_ID: &str = "current_token.win32";
+pub const WINDOWS_SERVICE_NAME_MAX_UTF16_UNITS: usize = 256;
+pub const WINDOWS_SERVICE_EVIDENCE_MAX_UTF16_UNITS: usize = 16_384;
+
+const WINDOWS_SERVICE_IDENTITY_DOMAIN: &[u8] = b"systemdiff.windows-services.identity.v1\0";
 
 #[derive(Debug, Deserialize)]
 struct SnapshotDocumentHeader {
@@ -232,8 +240,12 @@ impl Snapshot {
                     "observations[].canonical_id",
                 ));
             }
-            if let Artifact::RegistryStartup(entry) = &observation.artifact {
-                validate_registry_startup_entry(entry)?;
+            match &observation.artifact {
+                Artifact::RegistryStartup(entry) => validate_registry_startup_entry(entry)?,
+                Artifact::WindowsService(service) => {
+                    validate_windows_service_observation(observation, service)?;
+                }
+                Artifact::ScheduledTask(_) => {}
             }
 
             let key = observation.key();
@@ -717,8 +729,137 @@ pub struct WindowsService {
     pub binary_path: String,
     pub account: Option<String>,
     pub dependencies: Vec<String>,
-    pub delayed_auto_start: Option<bool>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub load_order_group: Option<String>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    pub tag_id: Option<u32>,
+    pub delayed_auto_start: bool,
     pub description: Option<String>,
+}
+
+fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
+/// Returns the versioned Collector v1 identity for exact service-name UTF-16
+/// code units. SCM name comparisons are case-insensitive, but Windows does not
+/// expose a documented persistent canonical token suitable for independent,
+/// cross-platform Snapshot generation. Collector v1 therefore preserves exact
+/// returned casing and documents the possible casing-only false split.
+pub fn windows_service_identity(service_name_utf16: &[u16]) -> String {
+    let unit_count = u32::try_from(service_name_utf16.len()).unwrap_or(u32::MAX);
+    let mut digest = Sha256::new();
+    digest.update(WINDOWS_SERVICE_IDENTITY_DOMAIN);
+    digest.update(unit_count.to_le_bytes());
+    for unit in service_name_utf16 {
+        digest.update(unit.to_le_bytes());
+    }
+    lower_hex_bytes(&digest.finalize())
+}
+
+fn lower_hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len().saturating_mul(2));
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
+fn validate_windows_service_observation(
+    observation: &Observation,
+    service: &WindowsService,
+) -> Result<(), SnapshotValidationError> {
+    if observation.collector_id != WINDOWS_SERVICES_COLLECTOR_ID
+        || observation.collector_version != WINDOWS_SERVICES_COLLECTOR_VERSION
+        || observation.scope_id != WINDOWS_SERVICES_SCOPE_ID
+    {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "collector/scope",
+        });
+    }
+
+    let service_name_units: Vec<u16> = service.service_name.encode_utf16().collect();
+    if service_name_units.is_empty()
+        || service_name_units.len() > WINDOWS_SERVICE_NAME_MAX_UTF16_UNITS
+        || service.service_name.contains(['\0', '/', '\\'])
+    {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "service_name",
+        });
+    }
+    if observation.canonical_id != windows_service_identity(&service_name_units) {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "canonical_id/service_name",
+        });
+    }
+
+    let win32_base = service.service_type & 0x30;
+    let driver_bits = service.service_type & 0x0f;
+    if !matches!(win32_base, 0x10 | 0x20) || driver_bits != 0 {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "service_type",
+        });
+    }
+    if service.binary_path.is_empty() || service.binary_path.contains('\0') {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "binary_path",
+        });
+    }
+
+    let optional_nonempty = [
+        ("display_name", service.display_name.as_deref()),
+        ("account", service.account.as_deref()),
+        ("load_order_group", service.load_order_group.as_deref()),
+        ("description", service.description.as_deref()),
+    ];
+    for (field, value) in optional_nonempty {
+        if value.is_some_and(|value| value.is_empty() || value.contains('\0')) {
+            return Err(SnapshotValidationError::InvalidWindowsServiceEvidence { field });
+        }
+    }
+    if service
+        .dependencies
+        .iter()
+        .any(|dependency| dependency.is_empty() || dependency.contains('\0'))
+    {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "dependencies",
+        });
+    }
+
+    let evidence_units = service_name_units
+        .len()
+        .checked_add(service.display_name.as_deref().map_or(0, utf16_len))
+        .and_then(|total| total.checked_add(utf16_len(&service.binary_path)))
+        .and_then(|total| total.checked_add(service.account.as_deref().map_or(0, utf16_len)))
+        .and_then(|total| {
+            service
+                .dependencies
+                .iter()
+                .try_fold(total, |total, dependency| {
+                    total.checked_add(utf16_len(dependency))
+                })
+        })
+        .and_then(|total| {
+            total.checked_add(service.load_order_group.as_deref().map_or(0, utf16_len))
+        })
+        .and_then(|total| total.checked_add(service.description.as_deref().map_or(0, utf16_len)));
+    if !evidence_units.is_some_and(|units| units <= WINDOWS_SERVICE_EVIDENCE_MAX_UTF16_UNITS) {
+        return Err(SnapshotValidationError::InvalidWindowsServiceEvidence {
+            field: "retained_text_evidence",
+        });
+    }
+    Ok(())
+}
+
+fn utf16_len(value: &str) -> usize {
+    value.encode_utf16().count()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -941,6 +1082,9 @@ pub enum SnapshotValidationError {
     InvalidRegistryEvidence {
         field: &'static str,
     },
+    InvalidWindowsServiceEvidence {
+        field: &'static str,
+    },
     DuplicateObservation(ArtifactKey),
 }
 
@@ -1031,6 +1175,9 @@ impl fmt::Display for SnapshotValidationError {
             ),
             Self::InvalidRegistryEvidence { field } => {
                 write!(formatter, "invalid Registry evidence: {field}")
+            }
+            Self::InvalidWindowsServiceEvidence { field } => {
+                write!(formatter, "invalid Windows service evidence: {field}")
             }
             Self::DuplicateObservation(key) => {
                 write!(formatter, "duplicate observation identity: {key}")

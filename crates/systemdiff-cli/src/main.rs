@@ -400,7 +400,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn real_read_only_snapshot_serializes_and_reopens_with_explicit_registry_scopes() {
+    fn real_read_only_snapshot_serializes_and_reopens_with_both_collectors() {
         let captured_at = "2026-08-11T00:00:00Z";
         let snapshot = capture_snapshot(captured_at.to_owned(), "0.0.0-test".to_owned())
             .expect("supported Windows test host must produce a read-only Snapshot");
@@ -410,7 +410,10 @@ mod tests {
             .expect("generated Snapshot must reopen through header-first routing");
 
         assert_eq!(reparsed.captured_at, captured_at);
-        assert_eq!(reparsed.enabled_collectors, ["windows.registry.startup"]);
+        assert_eq!(
+            reparsed.enabled_collectors,
+            ["windows.registry.startup", "windows.services"]
+        );
         let registry = reparsed
             .collectors
             .iter()
@@ -431,6 +434,23 @@ mod tests {
                 .iter()
                 .any(|coverage| coverage.scope_id == "current_user.shared.run_once")
         );
+        let services = reparsed
+            .collectors
+            .iter()
+            .find(|run| run.id == "windows.services")
+            .expect("Windows Services Collector run must exist");
+        assert_eq!(services.status, systemdiff_core::CollectorStatus::Partial);
+        assert!(services.coverage.iter().any(|coverage| {
+            coverage.scope_id == "current_token.win32"
+                && coverage.status == systemdiff_core::CollectorStatus::Partial
+        }));
+        assert!(reparsed.observations.iter().any(|observation| {
+            observation.collector_id == "windows.services"
+                && matches!(
+                    observation.artifact,
+                    systemdiff_core::Artifact::WindowsService(_)
+                )
+        }));
     }
 
     #[test]

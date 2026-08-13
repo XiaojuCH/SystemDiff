@@ -45,7 +45,7 @@ Official references: [Run and RunOnce](https://learn.microsoft.com/windows/win32
 
 ## Windows services
 
-Planned ID: `windows.services`
+Implemented ID/version: `windows.services` v1
 
 v0.1 covers Win32 service configuration and explicitly excludes drivers.
 
@@ -54,11 +54,17 @@ Implementation source:
 - `OpenSCManagerW` and `EnumServicesStatusExW` for enumeration.
 - `OpenServiceW`, `QueryServiceConfigW`, and narrowly selected `QueryServiceConfig2W` levels for configuration.
 - Service name is identity; display name is evidence, not identity.
-- Stable configuration includes raw type/start/error-control values, binary path, account, dependencies, load group/tag, delayed-auto-start, and description when readable.
+- Stable configuration includes raw type/start/error-control values, unexpanded binary path, account, dependencies, load group/tag, delayed-auto-start, and description.
 - PID, checkpoint, wait hint, and transient run status do not participate in the default configuration diff.
 - A service that vanishes between enumeration and query produces an item diagnostic rather than failing the Collector.
 
-`EnumServicesStatusExW` can omit services the caller cannot query. Non-elevated coverage is therefore current-token/best-effort even if enumeration returns success. Per-user services with `_LUID` suffixes retain their full names; explanation rules may reduce noise, but collection never merges them.
+`EnumServicesStatusExW` can silently omit services for which the caller lacks `SERVICE_QUERY_STATUS`. The single `current_token.win32` scope is therefore always `partial`/best-effort even when enumeration succeeds. A one-sided absence is Inconclusive, not Removed. Every emitted observation is atomic: base config, description, and delayed-auto-start were all read and strictly decoded; an unreadable/malformed item is omitted with a diagnostic while complete siblings remain. `None` consequently means known configured absence, not query failure.
+
+Enumeration requests only `SC_MANAGER_ENUMERATE_SERVICE`; each service is opened only with `SERVICE_QUERY_CONFIG`. `SERVICE_WIN32` includes own-process/share-process services and their documented modifiers while excluding native driver-only types. Per-user services retain their full `_LUID` suffix. Dependencies retain API order, casing, and `+` group prefixes; no command parsing, environment expansion, executable resolution, hashing, signature check, or risk inference occurs.
+
+Collector v1 identity is domain-separated SHA-256 over the exact service-name UTF-16 units and length. Service lookup is case-insensitive, but Microsoft exposes no documented durable cross-platform canonical token; v1 therefore documents the conservative possibility of a casing-only false split rather than applying an unverified Unicode/NLS fold. Display name and transient status/PID are never identity.
+
+SystemDiff budgets are 4,096 retained services, 32 KiB of retained UTF-16 text per service, and 16 MiB across the Collector. Enumeration pages are bounded to 64 steps; native enumeration/query buffers follow the documented 256 KiB/8 KiB API ceilings. These are capture budgets, not general Windows Registry or SCM platform limits. Configuration changes are handled with at most three full reads looking for two consecutive equal bundles; a vanishing or unstable service produces a diagnostic.
 
 Official references: [EnumServicesStatusExW](https://learn.microsoft.com/windows/win32/api/winsvc/nf-winsvc-enumservicesstatusexw), [QUERY_SERVICE_CONFIGW](https://learn.microsoft.com/windows/win32/api/winsvc/ns-winsvc-query_service_configw), [service access rights](https://learn.microsoft.com/windows/win32/services/service-security-and-access-rights), [per-user services](https://learn.microsoft.com/windows/application-management/per-user-services-in-windows).
 
