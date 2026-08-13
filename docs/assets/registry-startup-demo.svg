@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650" role="img" aria-labelledby="title description">
+  <title id="title">SystemDiff synthetic Registry startup demo</title>
+  <description id="description">Verified SystemDiff terminal output showing one synthetic current-user Run startup value added.</description>
+  <rect width="1200" height="650" rx="24" fill="#f2f5f7"/>
+  <rect x="40" y="36" width="1120" height="530" rx="16" fill="#101820"/>
+  <rect x="40" y="36" width="1120" height="54" rx="16" fill="#1d2a34"/>
+  <rect x="40" y="74" width="1120" height="16" fill="#1d2a34"/>
+  <circle cx="72" cy="63" r="7" fill="#8ea0ad"/>
+  <circle cx="96" cy="63" r="7" fill="#8ea0ad"/>
+  <circle cx="120" cy="63" r="7" fill="#8ea0ad"/>
+  <text x="600" y="69" text-anchor="middle" fill="#d7e1e8" font-family="Segoe UI, sans-serif" font-size="16">Synthetic Registry-only demo · verified CLI output</text>
+  <g fill="#eef5f8" font-family="Cascadia Mono, Consolas, monospace" font-size="22">
+    <text x="78" y="132">1 confirmed change</text>
+    <text x="78" y="168" fill="#aab9c3">Compared 2026-08-11T00:00:00Z -&gt; 2026-08-11T00:01:00Z</text>
+    <text x="78" y="228" font-weight="600">Registry startup changes</text>
+    <text x="96" y="278" fill="#71d49b">+ SystemDiffSyntheticE2E</text>
+    <text x="132" y="314">Added (Run)</text>
+    <text x="132" y="350">Added to current-user startup</text>
+    <text x="132" y="410" fill="#aab9c3">Command</text>
+    <text x="168" y="446">C:\Synthetic\example.exe</text>
+    <text x="132" y="506" fill="#aab9c3">Location</text>
+    <text x="168" y="542">HKCU\Software\Microsoft\Windows\CurrentVersion\Run</text>
+  </g>
+  <text x="600" y="610" text-anchor="middle" fill="#52636f" font-family="Segoe UI, sans-serif" font-size="16">Factual Registry evidence only · no severity, signature, or malware verdict inferred</text>
+</svg>

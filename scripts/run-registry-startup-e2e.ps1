@@ -195,10 +195,32 @@ try {
         throw 'The Added change did not match the exact synthetic HKCU Shared Run evidence identity.'
     }
 
+    $humanDiff = (Invoke-SystemDiff -Executable $systemdiff -Arguments @('diff', $beforePath, $afterPath)) -join [Environment]::NewLine
+    if (
+        -not $humanDiff.Contains('1 confirmed change') -or
+        -not $humanDiff.Contains($valueName) -or
+        -not $humanDiff.Contains('Added to current-user startup') -or
+        -not $humanDiff.Contains('HKCU\Software\Microsoft\Windows\CurrentVersion\Run')
+    ) {
+        throw 'The human-readable Diff did not present the exact synthetic Registry startup change.'
+    }
+
+    $technicalDiff = (Invoke-SystemDiff -Executable $systemdiff -Arguments @('diff', '--technical', $beforePath, $afterPath)) -join [Environment]::NewLine
+    if (
+        -not $technicalDiff.Contains('windows.registry.startup') -or
+        -not $technicalDiff.Contains('version: 1') -or
+        -not $technicalDiff.Contains('current_user.shared.run') -or
+        -not $technicalDiff.Contains($change.key.canonical_id) -or
+        -not $technicalDiff.Contains($evidence.content_sha256)
+    ) {
+        throw 'The technical Diff did not preserve the exact synthetic Registry evidence.'
+    }
+
     Write-Output 'Before Snapshot: synthetic value absent'
     Write-Output 'Synthetic mutation: exact HKCU Shared Run REG_SZ established'
     Write-Output 'After Snapshot: synthetic value present'
     Write-Output 'Diff: exactly 1 Added, 0 Removed, expected identity matched'
+    Write-Output 'Renderers: human and technical evidence verified'
 }
 finally {
     $cleanupFailure = $null

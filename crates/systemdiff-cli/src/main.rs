@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use systemdiff_core::{Snapshot, decode_snapshot_document};
 use systemdiff_diff::{DiffOptions, diff_snapshots};
-use systemdiff_report::{write_json, write_terminal};
+use systemdiff_report::{write_json, write_technical, write_terminal};
 use systemdiff_windows::{capture_snapshot, mvp_collector_plans};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
@@ -41,8 +41,12 @@ enum Command {
     /// Compare two draft SystemDiff snapshot files.
     Diff {
         /// Render the versioned JSON diff instead of terminal text.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "technical")]
         json: bool,
+
+        /// Render exact technical evidence as plain text.
+        #[arg(long, conflicts_with = "json")]
+        technical: bool,
 
         /// Include observations that did not change.
         #[arg(long)]
@@ -85,6 +89,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
         }
         Command::Diff {
             json,
+            technical,
             include_unchanged,
             before,
             after,
@@ -97,6 +102,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn Error>> {
             let mut output = stdout.lock();
             if json {
                 write_json(&mut output, &diff)?;
+            } else if technical {
+                write_technical(&mut output, &diff, &before, &after)?;
             } else {
                 write_terminal(&mut output, &diff)?;
             }
@@ -298,10 +305,47 @@ mod tests {
             cli.command,
             Command::Diff {
                 json: true,
+                technical: false,
                 include_unchanged: false,
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn parses_technical_diff_command() {
+        let cli = Cli::try_parse_from([
+            "systemdiff",
+            "diff",
+            "--technical",
+            "before.json",
+            "after.json",
+        ])
+        .expect("technical diff command must parse");
+
+        assert!(matches!(
+            cli.command,
+            Command::Diff {
+                json: false,
+                technical: true,
+                include_unchanged: false,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn technical_and_json_modes_are_mutually_exclusive() {
+        let result = Cli::try_parse_from([
+            "systemdiff",
+            "diff",
+            "--technical",
+            "--json",
+            "before.json",
+            "after.json",
+        ]);
+
+        assert!(result.is_err());
     }
 
     #[test]

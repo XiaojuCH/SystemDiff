@@ -1,0 +1,14 @@
+1 confirmed change
+Compared 2026-08-11T00:00:00Z -> 2026-08-11T00:01:00Z
+
+Registry startup changes
+
+  + SystemDiffSyntheticE2E
+    Added (Run)
+    Added to current-user startup
+
+    Command
+      C:\Synthetic\example.exe
+
+    Location
+      HKCU\Software\Microsoft\Windows\CurrentVersion\Run
