@@ -4,7 +4,7 @@ Last updated: 2026-08-13
 
 ## Current phase
 
-The public foundation, Registry startup vertical slice, human-readable Diff, and portable Windows x64 Developer Preview are on `main`. The current `feat/windows-services` work for Issue #11 adds the second real Collector while preserving the read-only and no-false-removal boundaries. v0.1 remains incomplete.
+The public foundation, Registry startup vertical slice, human-readable Diff, and portable Windows x64 Developer Preview are on `main`. PR #12 on `feat/windows-services` implements Issue #11's second real Collector while preserving the read-only and no-false-removal boundaries. Implementation, independent review, and local/real-Windows validation are complete; merge remains a maintainer decision. v0.1 remains incomplete.
 
 ## Implemented components
 
@@ -50,7 +50,7 @@ The public foundation, Registry startup vertical slice, human-readable Diff, and
 
 ## Next milestone
 
-Finish implementation, independent review, real read-only Windows validation, remote CI, and downloaded-artifact verification for Issue #11 without merging automatically. Scheduled Tasks remains intentionally unstarted; a signed, permanent public download remains future release work.
+Evaluate and merge PR #12 for Issue #11 when its authoritative GitHub checks remain green. Scheduled Tasks remains intentionally unstarted; a signed, permanent public download remains future release work.
 
 ## Major unresolved questions
 

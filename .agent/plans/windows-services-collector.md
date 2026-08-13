@@ -144,7 +144,7 @@ The Collector and renderer can be reverted without writing system state. The wir
 - [x] 2026-08-13: implemented the pure Collector and query-only native SCM adapter with RAII handles, bounded native buffers/pagination, strict UTF-16, atomic observations, and deterministic selection.
 - [x] 2026-08-13: integrated both Collectors into Snapshot capture, Service report rendering, focused fixtures/tests, portable verification, and public/internal docs.
 - [x] 2026-08-13: completed local, real-Windows, portable, and independent-review validation; all review findings were resolved.
-- [ ] Commit, push, open PR, and observe final remote CI.
+- [x] 2026-08-13: committed, pushed, and opened PR #12 linked to Issue #11. Authoritative remote validation remains recorded on the PR rather than creating a circular post-CI repository edit.
 
 ## Discoveries
 
@@ -179,4 +179,4 @@ Local implementation validation on 2026-08-13:
 - Final local portable package verification passed after removing Cargo/Rust/linker tools from `PATH`: AMD64, `asInvoker`, `uiAccess=false`, unsigned, no delayed imports, reviewed imports `advapi32.dll`, `api-ms-win-core-synch-l1-2-0.dll`, `KERNEL32.dll`, and `ntdll.dll`. EXE size was 1,860,608 bytes; ZIP size was 740,539 bytes. Exact outer/inner allowlists and checksum passed, and the packaged binary captured both Collectors.
 - `git diff --check`: passed. Repository secret/machine-path scan found no new credential or committed real-host evidence.
 - Independent reviewer final result: High 0 / Medium 0 / Low 0. The review-driven fixes made per-service failure diagnostics distinguishable without exposing service names and rendered delayed-auto-start changes independently of start type.
-- Final remote CI/artifact results remain pending and will be appended without inference.
+- Remote Windows/Ubuntu CI, package verification, upload, and fresh-runner download verification are authoritative GitHub PR/run state and are not copied into this repository after each HEAD change.
