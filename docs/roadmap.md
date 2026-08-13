@@ -29,6 +29,7 @@ Required scope:
 - Scheduled Tasks 2.0 configuration.
 - Versioned snapshot and diff JSON.
 - Human-readable terminal report.
+- An unsigned, expiring Windows x64 CI Developer Preview that proves the existing CLI can run from a downloaded portable package without Cargo. **In progress; this is not an official release.**
 - Independent collector failures and clear privilege/coverage reporting.
 - Deterministic fixtures and snapshot-to-diff integration tests that do not need administrator privileges.
 
@@ -62,3 +63,5 @@ Product engineering precedes promotion:
 2. A short hero demo should make the value obvious without security hype.
 3. README installation and trust claims must match released artifacts.
 4. Broader launch waits for a result worth sharing, not merely a completed scaffold.
+
+The first CI Developer Preview intentionally stops short of a release: browser download requires GitHub sign-in, artifacts expire, and the executable is unsigned. A public alpha additionally requires clean-machine validation, a publisher-signing decision, stable version semantics, and a durable Release channel.

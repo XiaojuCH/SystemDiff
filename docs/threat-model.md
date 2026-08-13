@@ -57,7 +57,7 @@ Open questions that may change rankings:
 - Core evidence -> diff/rules: typed in-process values; compatibility, coverage, deterministic identity, and no evidence execution are the guarantees.
 - Diff/findings -> report files/terminal: privacy-sensitive local output; destination choice is user-controlled, and future sanitization must be explicit.
 - Future WebView -> Tauri core: typed local IPC; bundled origin, allowlisted commands, least-privilege capabilities, and input validation are required.
-- Repository/dependencies -> CI/release artifacts: developer-controlled source plus third-party actions/crates; read-only token permissions, immutable action references, lockfiles, review, and dependency updates reduce risk.
+- Repository/dependencies -> CI artifacts: developer-controlled source plus third-party actions/crates; read-only token permissions, immutable action references, the committed Cargo lockfile, review, exact package allowlists, checksums, and artifact-download verification reduce risk.
 
 #### Diagram
 
@@ -120,7 +120,7 @@ flowchart LR
 | Report destination | CLI output path/stdout | Process -> filesystem/user | Sensitive output and overwrite behavior | `docs/product-principles.md` |
 | Rule inputs | Parsed changes | Evidence -> judgment | Rules must reference, not rewrite, evidence | `docs/architecture.md` |
 | Future Tauri IPC | WebView commands | Web content -> native core | Narrow commands/capabilities only | `docs/adr/0003-desktop-stack.md` |
-| CI dependencies/actions | Pull requests and dependency updates | External supply chain -> build | No secrets on fork code; immutable pins | `.github/workflows/ci.yml` |
+| CI dependencies/actions | Pull requests and dependency updates | External supply chain -> build | Fork PRs cannot enter the upstream-push artifact upload path; no secrets; immutable pins | `.github/workflows/ci.yml` |
 
 ## Top abuse paths
 
@@ -142,7 +142,7 @@ flowchart LR
 | TM-004 | User/workflow mistake | Real report is shared publicly | Publish sensitive raw evidence | Lasting privacy disclosure | Snapshot/report confidentiality | Sensitive-by-default and redaction metadata (`docs/product-principles.md`) | Sanitizer absent | Blocking share warning in UI, documented manual review, policy-versioned pure sanitizer, synthetic issue fixtures | Scan project issues for accidental reports; sanitizer golden tests | High | High | High |
 | TM-005 | Future compromised WebView | Desktop exposes broad command/capability | Invoke native execution/write or read excess data | Privilege misuse and boundary violation | Token, host integrity, evidence confidentiality | Proposed narrow IPC (`docs/adr/0003-desktop-stack.md`) | Desktop not yet threat-tested | Bundled content, restrictive CSP, explicit commands, no generic shell/fs/http plugins, command authorization tests | Log command IDs without sensitive payloads; capability review in CI | Low pre-v0.2 | High | Medium |
 | TM-006 | Rule author or malformed evidence | Rule sees ambiguous command/path data | Overstate heuristic or detach finding from evidence | Misleading/fearmongering output | Finding integrity and user trust | Evidence-before-judgment principle; findings reference changes (`docs/architecture.md`) | No real rule corpus/reviewer rubric | Stable reason IDs, calibrated classifications, explanation keys, counterexample fixtures, independent review | Golden finding snapshots and rule precision review | Medium | Medium | Medium |
-| TM-007 | Supply-chain attacker | Dependency/action update reaches CI | Execute during build or replace artifact | Malicious binaries under project identity | Build/release integrity | Minimal CI permissions and dependency policy (`docs/architecture.md`) | No lockfile/signing/release pipeline yet | Commit lockfiles, pin actions by full SHA, review Dependabot PRs, audit before release, sign Windows artifacts | Dependency review, reproducible checksums, provenance later | Low | High | Medium |
+| TM-007 | Supply-chain attacker | Dependency/action update reaches CI | Execute during build or replace artifact | Malicious binaries under project identity | Build/release integrity | Minimal CI permissions, committed lockfile, immutable action pins, an upstream-push-only preview upload path, exact archive allowlists, SHA-256, PE/manifest inspection, and downloaded-artifact smoke verification (`.github/workflows/ci.yml`) | Preview artifacts are unsigned and expiring; no immutable Release or publisher identity exists | Review Dependabot changes, retain download-back verification, add Authenticode and provenance to a future immutable Release | Dependency review, checksum mismatch failures, artifact inventory, signing verification later | Low | High | Medium |
 | TM-008 | Feature contributor | Maintainer accepts scope expansion | Add remediation, evidence execution, credential access, or evasion | System modification or dual-use abuse | Host integrity and project trust | Explicit prohibited boundary (`AGENTS.md`, `docs/product-principles.md`) | Policy is review-enforced | Stop and require maintainer decision, ADR and new threat model; keep remediation separate if ever approved | PR checklist and independent security review | Medium | High | High |
 
 ## Criticality calibration

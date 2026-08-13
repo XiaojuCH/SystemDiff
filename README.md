@@ -11,9 +11,9 @@
 SystemDiff takes a before Snapshot and an after Snapshot, then explains the evidence that changed. It is for questions like: “I installed this program—what did it add to startup?”
 
 > [!IMPORTANT]
-> SystemDiff is pre-release, source-build-only software. Today it captures and compares the documented Windows Registry Run/RunOnce startup locations. Services, Scheduled Tasks, rules, redaction, releases, and the desktop app are not implemented.
+> SystemDiff is pre-release software. Today it captures and compares the documented Windows Registry Run/RunOnce startup locations. An unsigned, short-lived Windows x64 Developer Preview is available from eligible CI runs, but there is no official binary Release. Services, Scheduled Tasks, rules, redaction, releases, and the desktop app are not implemented.
 
-[Try the sample](#try-the-registry-demo) · [Build from source](#build-from-source) · [Inspect the data format](docs/data-format.md)
+[Try the sample](#try-the-registry-demo) · [Developer Preview builds](#developer-preview-builds) · [Build from source](#build-from-source) · [Inspect the data format](docs/data-format.md)
 
 ![SystemDiff showing one synthetic Registry startup entry added](docs/assets/registry-startup-demo.svg)
 
@@ -31,6 +31,19 @@ _Verified output from the committed synthetic Registry-only fixtures. No real ho
 | Rules, signatures, risk classification, and redacted sharing | Planned; not implemented |
 
 SystemDiff reports facts such as “Added to current-user startup.” It does not currently decide whether an entry is malicious, safe, signed, or worthy of removal.
+
+## Developer Preview builds
+
+Successful `main` CI runs attach `systemdiff-windows-x86_64-developer-preview` for 14 days. This is an ephemeral GitHub Actions artifact, not a GitHub Release or a supported version. To get it:
+
+1. sign in to GitHub and open a successful [CI workflow run](https://github.com/XiaojuCH/SystemDiff/actions/workflows/ci.yml);
+2. find **Artifacts** at the bottom of the run and download `systemdiff-windows-x86_64-developer-preview`;
+3. extract GitHub's outer download, verify `systemdiff-windows-x86_64.zip` against the adjacent `SHA256SUMS`, then extract the portable ZIP;
+4. read `QUICKSTART.md` and run `.\systemdiff.exe --help`.
+
+The x64 executable is built in Cargo's `release` profile. CI checks its PE architecture and imports, verifies an embedded `asInvoker` / `uiAccess=false` manifest, and runs the downloaded artifact without Cargo. The current portable build statically links the MSVC CRT, so inspection shows no dynamic VC/UCRT runtime import; ordinary Windows system DLLs remain dependencies. Clean-machine validation on every supported Windows baseline is still required before an official alpha.
+
+The preview is not Authenticode-signed. Windows may show a SmartScreen or reputation warning. Verify the checksum and public source; SystemDiff does not ask users to disable or bypass Windows security controls. Browser artifact downloads require GitHub sign-in and expire, so this is intentionally not presented as the final public download experience.
 
 ## Try the Registry demo
 
@@ -98,7 +111,7 @@ cargo test --locked --workspace --all-targets
 cargo run --locked -p systemdiff-cli -- collectors
 ```
 
-There is no official binary release yet. The existing synthetic HKCU write-based E2E harness is test-only, requires two explicit gates, refuses to overwrite an existing value, performs exact-data guarded cleanup, and is not run by default CI.
+There is no official binary Release yet. The CI Developer Preview above is unsigned and temporary. The existing synthetic HKCU write-based E2E harness is test-only, requires two explicit gates, refuses to overwrite an existing value, performs exact-data guarded cleanup, and is not run by default CI.
 
 ## Architecture and roadmap
 
@@ -118,4 +131,4 @@ SystemDiff is defensive auditing software. Credential dumping, token/cookie extr
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE).
+SystemDiff is licensed under the [Apache License 2.0](LICENSE). The portable binary's dependency notices are listed in [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt).

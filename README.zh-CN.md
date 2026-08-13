@@ -11,9 +11,9 @@
 SystemDiff 会分别创建变更前后的 Snapshot，再说明两者之间有哪些证据发生了变化。它要回答的是这类问题：“我刚安装了这个程序，它往启动项里加了什么？”
 
 > [!IMPORTANT]
-> SystemDiff 仍处于预发布阶段，目前只能从源码构建。现阶段真正支持的是采集并比较 Windows Registry 中有官方文档的 Run/RunOnce 启动项。Windows 服务、计划任务、规则、脱敏、正式发布包和桌面应用均尚未实现。
+> SystemDiff 仍处于预发布阶段。现阶段真正支持的是采集并比较 Windows Registry 中有官方文档的 Run/RunOnce 启动项。符合条件的 CI run 会提供短期有效、未签名的 Windows x64 Developer Preview，但目前没有正式二进制 Release。Windows 服务、计划任务、规则、脱敏、正式发布包和桌面应用均尚未实现。
 
-[试用示例](#试用-registry-示例) · [从源码构建](#从源码构建) · [查看数据格式](docs/data-format.md)
+[试用示例](#试用-registry-示例) · [Developer Preview 构建](#developer-preview-构建) · [从源码构建](#从源码构建) · [查看数据格式](docs/data-format.md)
 
 ![SystemDiff 显示新增的一条 synthetic Registry 启动项](docs/assets/registry-startup-demo.svg)
 
@@ -31,6 +31,19 @@ _图中是仓库内 Registry-only synthetic fixtures 生成并经过验证的真
 | 规则、数字签名、风险判断和脱敏分享 | 计划中；尚未实现 |
 
 SystemDiff 目前只陈述“已加入当前用户启动项”这类事实，不会判断某个条目是否恶意、安全、已签名或应该删除。
+
+## Developer Preview 构建
+
+`main` 的 CI 成功运行后，会附带保存 14 天的 `systemdiff-windows-x86_64-developer-preview`。这是会过期的 GitHub Actions artifact，不是 GitHub Release，也不代表受支持的正式版本。获取步骤如下：
+
+1. 登录 GitHub，打开一次成功的 [CI workflow run](https://github.com/XiaojuCH/SystemDiff/actions/workflows/ci.yml)；
+2. 在页面底部找到 **Artifacts**，下载 `systemdiff-windows-x86_64-developer-preview`；
+3. 解压 GitHub 下载的外层压缩包，用旁边的 `SHA256SUMS` 校验 `systemdiff-windows-x86_64.zip`，再解压 portable ZIP；
+4. 阅读 `QUICKSTART.md`，运行 `.\systemdiff.exe --help`。
+
+x64 executable 使用 Cargo `release` profile 构建。CI 会检查 PE 架构和 imports，验证内嵌的 `asInvoker` / `uiAccess=false` manifest，并在不调用 Cargo 的情况下运行下载后的 artifact。当前 portable build 静态链接 MSVC CRT，因此实际检查未发现动态 VC/UCRT runtime import；它仍会依赖正常的 Windows system DLL。正式 alpha 前仍需在每个受支持的 Windows 基线环境中做 clean-machine 验证。
+
+此预览没有 Authenticode 签名，Windows 可能显示 SmartScreen 或 reputation 警告。请核对 checksum 和公开源码；SystemDiff 不会要求用户关闭或绕过 Windows 安全保护。通过浏览器下载 Actions artifact 需要登录 GitHub，而且 artifact 会过期，因此这里不会把它包装成最终的公开下载体验。
 
 ## 试用 Registry 示例
 
@@ -98,7 +111,7 @@ cargo test --locked --workspace --all-targets
 cargo run --locked -p systemdiff-cli -- collectors
 ```
 
-目前还没有官方二进制 Release。现有的 synthetic HKCU 写入型 E2E harness 只用于测试，需要两个显式 gate，会拒绝覆盖已有 value，并使用 exact-data guarded cleanup；默认 CI 不会运行它。
+目前还没有官方二进制 Release。上文的 CI Developer Preview 未签名且会过期。现有的 synthetic HKCU 写入型 E2E harness 只用于测试，需要两个显式 gate，会拒绝覆盖已有 value，并使用 exact-data guarded cleanup；默认 CI 不会运行它。
 
 ## 架构与路线图
 
@@ -118,4 +131,4 @@ SystemDiff 是防御性审计软件。凭据转储、token/cookie 提取、键�
 
 ## 许可证
 
-本项目采用 [Apache License 2.0](LICENSE) 授权。
+SystemDiff 采用 [Apache License 2.0](LICENSE) 授权；portable binary 的依赖许可说明见 [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt)。
