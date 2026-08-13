@@ -1,6 +1,6 @@
 # Portable Windows developer preview
 
-Status: In progress
+Status: Complete
 Owner: primary agent
 Last updated: 2026-08-13
 
@@ -111,7 +111,7 @@ The change is isolated to build metadata, scripts, CI, and documentation. Revert
 - [x] 2026-08-13: implemented packaging, binary verification, upstream-push-only CI upload/download verification, and English/Chinese end-user documentation.
 - [x] 2026-08-13: local locked format, Clippy, and 88-test workspace gates passed; the packaged artifact-only smoke passed with the toolchain removed from `PATH`.
 - [x] 2026-08-13: independent review found no High issues and five Medium/one Low across publication scope, upload allowlisting, timeouts, manifest namespace validation, and import validation; all were addressed and the focused package verifier reran successfully.
-- [ ] Open PR, wait for remote CI, and verify the downloaded artifact.
+- [x] 2026-08-13: pushed implementation commit `986f5f03a4253e32a570c0d47227e45be2e71f4d`, opened PR #10, observed all PR/push jobs pass, and downloaded/reverified the real GitHub artifact.
 
 ## Discoveries
 
@@ -119,7 +119,7 @@ The change is isolated to build metadata, scripts, CI, and documentation. Revert
 - Static CRT is a small measured size tradeoff here: +98,816 bytes (about 6%) before adding the manifest, while removing the observed redistributable imports.
 - The default executable contains no resource section, so privilege intent is not currently explicit or inspectable. A manifest is a correctness change to build metadata, not packaging decoration.
 - A ZIP cannot contain a checksum of itself. `SHA256SUMS` therefore belongs beside the ZIP in the outer Actions artifact; the inner ZIP remains the direct download/extract/run payload.
-- The final local manifest-bearing portable executable is 1,752,064 bytes. After adding required third-party license notices, its latest ZIP is 705,116 bytes with SHA-256 `0bb679fdb31deb28c14811350b5bb93ac31c658cd3f03b6d8380a9af15ac6459`; these local working-tree bytes can differ across package runs and from the later commit-built remote artifact because reproducible ZIP bytes are not claimed.
+- The implementation commit's local manifest-bearing portable executable was 1,752,064 bytes. Its commit-linked local ZIP was 705,117 bytes with SHA-256 `61f303ea459599394d75e802b334124d7b0683fef708d0b846cd97b08f72fe79`. The GitHub-hosted runner produced different, separately verified bytes, as expected because reproducible builds are not claimed.
 
 ## Decisions
 
@@ -144,4 +144,14 @@ Local validation completed on 2026-08-13:
 - Independent `dumpbin`: confirmed AMD64 CUI, a manifest resource, no delay-import directory, and only `advapi32.dll`, `ntdll.dll`, `kernel32.dll`, and `api-ms-win-core-synch-l1-2-0.dll` direct dependencies. A binary string search found no local workspace path.
 - `git diff --check`, PowerShell syntax parsing, local Markdown link targets, stale wording, and machine-path/secret scans: passed.
 
-Independent review, commit-linked repackage evidence, remote jobs/artifact metadata, and remote download-back verification remain pending.
+Remote validation completed on 2026-08-13 for implementation commit `986f5f03a4253e32a570c0d47227e45be2e71f4d`:
+
+- PR run `31674781709`: `Rust (windows-latest)` and `Rust (ubuntu-latest)` passed; artifact jobs correctly skipped on the pull-request event.
+- Upstream push run `31674761702`: Windows/Ubuntu Rust jobs, `Package Windows developer preview`, and `Verify downloaded Windows developer preview` all passed.
+- Artifact `systemdiff-windows-x86_64-developer-preview-candidate` (ID `9171147964`) was created with 14-day retention, 728,642-byte GitHub wrapper size, and expiration at `2026-08-27T06:44:00Z`.
+- `gh run download` retrieved the real upload. The downloaded portable ZIP was 728,262 bytes with SHA-256 `69603984f0749b454442b271d947aa883ce6c59e46ad6d705408c50616d4edce`.
+- The downloaded executable was 1,750,528 bytes with SHA-256 `9dddfb75e8fa07627b0015decbbe4bfacb48bf936022f8a3f4bbdd7aa0a463df`.
+- The downloaded artifact again passed the exact two-file outer allowlist, five-file ZIP allowlist, checksum, BUILD_INFO commit/hash binding, AMD64/PE32+/CUI checks, exact four-DLL import allowlist, empty delay imports, namespace-aware `asInvoker`/`uiAccess=false` manifest check, and unsigned-state check.
+- With Rust/MSVC commands removed from `PATH`, the downloaded executable passed `--help`, `collectors`, human/technical/JSON Registry fixture Diff, and a real read-only Snapshot smoke. The real Snapshot remained in a GUID temporary directory, was not logged or uploaded, and was removed afterward.
+
+PR #10 remains intentionally unmerged. Clean-machine manual validation, Authenticode signing, an immutable Release, and permanent anonymous download remain future release gates.
