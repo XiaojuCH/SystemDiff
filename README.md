@@ -8,10 +8,10 @@
 
 **Offline-first · Read-only · No account · No telemetry**
 
-SystemDiff takes a before Snapshot and an after Snapshot, then explains the evidence that changed. It is for questions like: “I installed this program—what did it add to startup?”
+SystemDiff takes a before Snapshot and an after Snapshot, then explains the evidence that changed. It is for questions like: “I installed this program—what startup entries or Windows services did it change?”
 
 > [!IMPORTANT]
-> SystemDiff is pre-release software. Today it captures and compares the documented Windows Registry Run/RunOnce startup locations. An unsigned, short-lived Windows x64 Developer Preview is available from eligible CI runs, but there is no official binary Release. Services, Scheduled Tasks, rules, redaction, releases, and the desktop app are not implemented.
+> SystemDiff is pre-release software. Today it captures and compares the documented Windows Registry Run/RunOnce startup locations and Windows service configuration visible to the current token. An unsigned, short-lived Windows x64 Developer Preview is available from eligible CI runs, but there is no official binary Release. Scheduled Tasks, rules, redaction, releases, and the desktop app are not implemented.
 
 [Try the sample](#try-the-registry-demo) · [Developer Preview builds](#developer-preview-builds) · [Build from source](#build-from-source) · [Inspect the data format](docs/data-format.md)
 
@@ -26,7 +26,7 @@ _Verified output from the committed synthetic Registry-only fixtures. No real ho
 | Capture current-user and local-machine Run/RunOnce evidence | Implemented on supported Windows systems |
 | Human-readable, technical, and deterministic JSON Diff output | Implemented |
 | Coverage-aware comparison that does not turn missing evidence into a false removal | Implemented |
-| Windows Services Collector | Planned next Collector; not implemented |
+| Capture current-token-visible Windows service configuration (drivers excluded) | Implemented with conservative partial coverage |
 | Scheduled Tasks Collector | Planned; not implemented |
 | Rules, signatures, risk classification, and redacted sharing | Planned; not implemented |
 
@@ -68,7 +68,7 @@ systemdiff diff --technical before.json after.json
 systemdiff diff --json before.json after.json
 ```
 
-The default output uses no color or ANSI formatting, so meaning is preserved when redirected or piped. `--technical` exposes Collector version, scope, canonical identity, Registry hive/view/path, lossless value name, native type, decode status, values, SHA-256, and coverage diagnostics. `--json` preserves the language-neutral Diff schema.
+The default output uses no color or ANSI formatting, so meaning is preserved when redirected or piped. `--technical` exposes Collector version, scope, canonical identity, Registry and service configuration evidence, raw numeric values, and coverage diagnostics. `--json` preserves the language-neutral Diff schema.
 
 ## Capture a real before/after pair
 
@@ -81,7 +81,7 @@ systemdiff snapshot -o after.json
 systemdiff diff before.json after.json
 ```
 
-This workflow is currently limited to Registry Run/RunOnce evidence. Compare Snapshots from the same Windows installation and the same user/principal context. Snapshots and every Diff/report mode are unredacted: human text, technical text, and JSON can all contain sensitive command strings, usernames in paths, hashes, raw evidence, and other host details. Review every report before sharing, and never attach unreviewed real evidence to a public Issue.
+This workflow currently covers Registry Run/RunOnce evidence and Windows service configuration. Service visibility depends on the current token and object ACLs, so Services v1 conservatively marks its scope partial: a missing service becomes Inconclusive rather than a confirmed removal. Compare Snapshots from the same Windows installation and the same user/principal context. Snapshots and every Diff/report mode are unredacted: human text, technical text, and JSON can contain service accounts, paths and arguments, descriptions, command strings, usernames, hashes, and other host details. Review every report before sharing, and never attach unreviewed real evidence to a public Issue.
 
 Current minimum collection platform: Windows 10 version 1709 or Windows Server 2016 version 1709. ARM64 captures current-user shared Registry scopes, but Collector v1 reports HKLM alternate-view coverage as unsupported until those views can be represented and tested correctly.
 
@@ -117,7 +117,7 @@ There is no official binary Release yet. The CI Developer Preview above is unsig
 
 The Rust workspace separates versioned domain data, Windows API access, deterministic Diff, rules, reporting, and CLI composition. The future desktop client is proposed to reuse the same core; no Tauri application has been generated.
 
-Registry startup is the first completed vertical slice, not the finished v0.1. See the [Collector notes](docs/collectors.md) and [roadmap](docs/roadmap.md) for current boundaries.
+Registry startup and Windows Services are the first two completed vertical slices, not the finished v0.1. See the [Collector notes](docs/collectors.md) and [roadmap](docs/roadmap.md) for current boundaries.
 
 ## Contributing
 

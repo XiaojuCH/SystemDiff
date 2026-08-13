@@ -84,6 +84,10 @@ Collectors own canonicalization and version it through their Collector version. 
 
 For Registry startup entries, Collector v1 computes a domain-separated SHA-256 over the exact value-name UTF-16 code units and their length. Prefixes and empty names are not stripped or normalized. Windows Registry value lookup itself is case-insensitive, but Microsoft does not provide a documented persistent canonical representation that can be generated independently in two Snapshots and compared cross-platform. Exact-code-unit identity is therefore a conservative pre-v0.1 limitation: it prevents false merges but could expose a casing-only logical update as Removed + Added if enumerated casing changes. This is not a permanent claim about Registry identity; changing the algorithm requires a new Collector version and regression fixtures.
 
+For Windows services, Collector v1 uses the same versioned/domain-separated exact-UTF-16 strategy over the service name; display name, PID, state, and configuration are not identity. The service artifact now requires `load_order_group` and `tag_id` fields in addition to raw service/start/error values, binary path, account, ordered dependencies, delayed-auto-start, and description. This is a deliberate pre-v0.1 correction to the draft wire shape; old draft Service objects missing the two fields are rejected, while explicit `null` means the complete query established configured absence. Query failure never becomes `null`: the whole item is omitted and coverage remains partial.
+
+Services v1 retains exact dependency order/casing and documented `+` group prefixes. Its real `current_token.win32` scope is always partial because SCM enumeration may silently omit status-inaccessible services. A same-identity item observed on both sides can still be Modified, but one-sided absence is Inconclusive. Focused synthetic fixtures may use complete coverage solely to regression-test the generic Added/Removed semantics.
+
 ## Diff semantics
 
 Output order is stable. A change contains a deterministic document-local opaque change ID, artifact key, and one of:

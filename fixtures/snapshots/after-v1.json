@@ -50,14 +50,22 @@
     {
       "id": "windows.services",
       "version": 1,
-      "status": "complete",
+      "status": "partial",
       "coverage": [
         {
-          "scope_id": "machine.win32",
-          "status": "complete"
+          "scope_id": "current_token.win32",
+          "status": "partial"
         }
       ],
-      "diagnostics": []
+      "diagnostics": [
+        {
+          "code": "service_visibility_best_effort",
+          "message": "Synthetic fixture models current-token service visibility.",
+          "stage": "enumerate",
+          "native_code": null,
+          "scope_id": "current_token.win32"
+        }
+      ]
     },
     {
       "id": "windows.scheduled_tasks",
@@ -148,8 +156,8 @@
     {
       "collector_id": "windows.services",
       "collector_version": 1,
-      "scope_id": "machine.win32",
-      "canonical_id": "newservice",
+      "scope_id": "current_token.win32",
+      "canonical_id": "d57075224a1a234f0ec190bff86b12a3308908b4570c02d57d2682cff439f6db",
       "artifact": {
         "kind": "windows_service",
         "evidence": {
@@ -161,6 +169,8 @@
           "binary_path": "C:\\Program Files\\Example\\service.exe --service",
           "account": "LocalSystem",
           "dependencies": ["RpcSs"],
+          "load_order_group": null,
+          "tag_id": null,
           "delayed_auto_start": true,
           "description": "Synthetic service added after the change."
         }

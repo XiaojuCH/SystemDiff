@@ -25,11 +25,11 @@ systemdiff diff before.json after.json
 Required scope:
 
 - Registry Run/RunOnce entries. **Implemented in the development CLI; pre-release validation continues.**
-- Windows services configuration.
+- Windows services configuration. **Implemented in the development CLI with conservative current-token partial coverage.**
 - Scheduled Tasks 2.0 configuration.
 - Versioned snapshot and diff JSON.
 - Human-readable terminal report.
-- An unsigned, expiring Windows x64 CI Developer Preview that proves the existing CLI can run from a downloaded portable package without Cargo. **In progress; this is not an official release.**
+- An unsigned, expiring Windows x64 CI Developer Preview that proves the existing CLI can run from a downloaded portable package without Cargo. **Implemented; this is not an official release.**
 - Independent collector failures and clear privilege/coverage reporting.
 - Deterministic fixtures and snapshot-to-diff integration tests that do not need administrator privileges.
 

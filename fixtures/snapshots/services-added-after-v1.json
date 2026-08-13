@@ -1,0 +1,61 @@
+{
+  "document_type": "systemdiff.snapshot",
+  "schema_version": 1,
+  "systemdiff_version": "0.0.0-fixture",
+  "captured_at": "2026-08-11T00:05:00Z",
+  "host": {
+    "windows_version": "Windows fixture",
+    "windows_build": "fixture",
+    "architecture": "x86_64"
+  },
+  "privilege": "standard_user",
+  "enabled_collectors": [
+    "windows.services"
+  ],
+  "collectors": [
+    {
+      "id": "windows.services",
+      "version": 1,
+      "status": "complete",
+      "coverage": [
+        {
+          "scope_id": "current_token.win32",
+          "status": "complete"
+        }
+      ],
+      "diagnostics": []
+    }
+  ],
+  "redaction": {
+    "status": "unredacted",
+    "policy": null
+  },
+  "observations": [
+    {
+      "collector_id": "windows.services",
+      "collector_version": 1,
+      "scope_id": "current_token.win32",
+      "canonical_id": "1f8fb1c080b80b63fc87e55671c51dda7a3c16cf4a3c7dcbe7224c75ef1000c8",
+      "artifact": {
+        "kind": "windows_service",
+        "evidence": {
+          "service_name": "ExampleUpdaterService_1a2b3",
+          "display_name": "Example Update Service",
+          "service_type": 16,
+          "start_type": 3,
+          "error_control": 1,
+          "binary_path": "%ProgramFiles%\\Example\\example-service.exe --service",
+          "account": "LocalSystem",
+          "dependencies": [
+            "RpcSs",
+            "+NetworkProvider"
+          ],
+          "load_order_group": null,
+          "tag_id": null,
+          "delayed_auto_start": false,
+          "description": "Synthetic service fixture for deterministic tests."
+        }
+      }
+    }
+  ]
+}

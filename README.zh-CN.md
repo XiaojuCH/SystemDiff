@@ -8,10 +8,10 @@
 
 **离线优先 · 只读 · 无需账号 · 不含遥测**
 
-SystemDiff 会分别创建变更前后的 Snapshot，再说明两者之间有哪些证据发生了变化。它要回答的是这类问题：“我刚安装了这个程序，它往启动项里加了什么？”
+SystemDiff 会分别创建变更前后的 Snapshot，再说明两者之间有哪些证据发生了变化。它要回答的是这类问题：“我刚安装了这个程序，它改了哪些启动项或 Windows 服务？”
 
 > [!IMPORTANT]
-> SystemDiff 仍处于预发布阶段。现阶段真正支持的是采集并比较 Windows Registry 中有官方文档的 Run/RunOnce 启动项。符合条件的 CI run 会提供短期有效、未签名的 Windows x64 Developer Preview，但目前没有正式二进制 Release。Windows 服务、计划任务、规则、脱敏、正式发布包和桌面应用均尚未实现。
+> SystemDiff 仍处于预发布阶段。现阶段真正支持的是采集并比较 Windows Registry 中有官方文档的 Run/RunOnce 启动项，以及当前 token 可见的 Windows 服务配置。符合条件的 CI run 会提供短期有效、未签名的 Windows x64 Developer Preview，但目前没有正式二进制 Release。计划任务、规则、脱敏、正式发布包和桌面应用均尚未实现。
 
 [试用示例](#试用-registry-示例) · [Developer Preview 构建](#developer-preview-构建) · [从源码构建](#从源码构建) · [查看数据格式](docs/data-format.md)
 
@@ -26,7 +26,7 @@ _图中是仓库内 Registry-only synthetic fixtures 生成并经过验证的真
 | 采集当前用户和本机范围内的 Run/RunOnce 证据 | 已在受支持的 Windows 系统上实现 |
 | 易读文本、technical 文本和确定性 JSON 三种 Diff 输出 | 已实现 |
 | 感知采集覆盖情况，不把缺失证据误报为删除 | 已实现 |
-| Windows Services Collector | 计划作为下一个 Collector；尚未实现 |
+| 采集当前 token 可见的 Windows 服务配置（不含驱动） | 已实现，并采用保守的 partial coverage |
 | Scheduled Tasks Collector | 计划中；尚未实现 |
 | 规则、数字签名、风险判断和脱敏分享 | 计划中；尚未实现 |
 
@@ -68,7 +68,7 @@ systemdiff diff --technical before.json after.json
 systemdiff diff --json before.json after.json
 ```
 
-默认输出不使用颜色或 ANSI 格式，因此重定向到文件或管道后仍能看懂。`--technical` 会显示 Collector version、scope、canonical identity、Registry hive/view/path、无损 value name、原生类型、decode status、before/after value、SHA-256 和 coverage diagnostics。`--json` 保持语言无关的 Diff schema。
+默认输出不使用颜色或 ANSI 格式，因此重定向到文件或管道后仍能看懂。`--technical` 会显示 Collector version、scope、canonical identity、Registry 和服务配置证据、raw numeric values 以及 coverage diagnostics。`--json` 保持语言无关的 Diff schema。
 
 ## 采集真实的 before/after Snapshot
 
@@ -81,7 +81,7 @@ systemdiff snapshot -o after.json
 systemdiff diff before.json after.json
 ```
 
-当前流程只覆盖 Registry Run/RunOnce 证据。两份 Snapshot 必须来自同一套 Windows 安装、同一用户/主体上下文。Snapshot 和所有 Diff/report 模式均未脱敏：易读文本、technical 文本和 JSON 都可能包含命令字符串、路径中的用户名、hash、raw evidence 和其他主机信息。分享前务必检查每一份报告，绝不要把未经检查的真实证据附到公开 Issue 中。
+当前流程覆盖 Registry Run/RunOnce 证据和 Windows 服务配置。服务可见性取决于当前 token 和对象 ACL，因此 Services v1 会保守地把 scope 标记为 partial：缺失的服务会显示为 Inconclusive，而不是确认已删除。两份 Snapshot 必须来自同一套 Windows 安装、同一用户/主体上下文。Snapshot 和所有 Diff/report 模式均未脱敏：易读文本、technical 文本和 JSON 都可能包含服务账号、路径与参数、描述、命令字符串、用户名、hash 和其他主机信息。分享前务必检查每一份报告，绝不要把未经检查的真实证据附到公开 Issue 中。
 
 当前最低支持 Windows 10 version 1709 或 Windows Server 2016 version 1709。ARM64 可以采集当前用户的 Shared Registry scopes；在能够正确表达并测试相关 view semantics 之前，Collector v1 会明确把 HKLM alternate-view coverage 标记为 unsupported。
 
@@ -117,7 +117,7 @@ cargo run --locked -p systemdiff-cli -- collectors
 
 Rust workspace 把带版本的领域数据、Windows API 访问、确定性 Diff、规则、报告和 CLI 组合彼此分离。未来的桌面客户端计划复用同一套 core；目前尚未生成 Tauri 应用。
 
-Registry startup 是第一个完成的 vertical slice，并不代表 v0.1 已经完成。当前边界和后续计划见 [Collector 说明](docs/collectors.md)与[路线图](docs/roadmap.md)。
+Registry startup 和 Windows Services 是前两个完成的 vertical slice，并不代表 v0.1 已经完成。当前边界和后续计划见 [Collector 说明](docs/collectors.md)与[路线图](docs/roadmap.md)。
 
 ## 参与贡献
 

@@ -351,6 +351,7 @@ try {
 
     $collectors = Invoke-PreviewCommand -Executable $executable -Arguments @('collectors')
     Assert-Condition ($collectors.IndexOf('windows.registry.startup v1: Implemented', [System.StringComparison]::Ordinal) -ge 0) 'Collector output does not report the Registry startup Collector as implemented.'
+    Assert-Condition ($collectors.IndexOf('windows.services v1: Implemented', [System.StringComparison]::Ordinal) -ge 0) 'Collector output does not report the Windows Services Collector as implemented.'
 
     $before = Join-Path $fixtures 'snapshots\registry-before-v1.json'
     $after = Join-Path $fixtures 'snapshots\registry-after-v1.json'
@@ -375,10 +376,18 @@ try {
     $null = Invoke-PreviewCommand -Executable $executable -Arguments @('snapshot', '-o', $snapshotPath)
     Assert-Condition (Test-Path -LiteralPath $snapshotPath -PathType Leaf) 'Packaged executable did not create a Snapshot.'
     $snapshotText = [System.IO.File]::ReadAllText($snapshotPath, [System.Text.Encoding]::UTF8)
-    Assert-Condition ($snapshotText -match '"document_type"\s*:\s*"systemdiff\.snapshot"') 'Snapshot document type is not canonical.'
-    Assert-Condition ($snapshotText -match '"schema_version"\s*:\s*1\s*,') 'Snapshot schema version is not 1.'
-    Assert-Condition ($snapshotText -match '"enabled_collectors"\s*:\s*\[\s*"windows\.registry\.startup"\s*\]') 'Snapshot does not enable the Registry startup Collector.'
-    Assert-Condition ($snapshotText -match '"collectors"\s*:\s*\[\s*\{\s*"id"\s*:\s*"windows\.registry\.startup"') 'Snapshot does not contain the Registry startup Collector run.'
+    $snapshotDocument = $snapshotText | ConvertFrom-Json
+    Assert-Condition ($snapshotDocument.document_type -ceq 'systemdiff.snapshot') 'Snapshot document type is not canonical.'
+    Assert-Condition ($snapshotDocument.schema_version -eq 1) 'Snapshot schema version is not 1.'
+    Assert-Condition (@($snapshotDocument.enabled_collectors).Count -eq 2) 'Snapshot does not enable exactly both implemented Collectors.'
+    Assert-Condition (@($snapshotDocument.enabled_collectors | Where-Object { $_ -ceq 'windows.registry.startup' }).Count -eq 1) 'Snapshot does not enable the Registry startup Collector.'
+    Assert-Condition (@($snapshotDocument.enabled_collectors | Where-Object { $_ -ceq 'windows.services' }).Count -eq 1) 'Snapshot does not enable the Windows Services Collector.'
+    $registryRun = @($snapshotDocument.collectors | Where-Object { $_.id -ceq 'windows.registry.startup' })
+    $servicesRun = @($snapshotDocument.collectors | Where-Object { $_.id -ceq 'windows.services' })
+    Assert-Condition ($registryRun.Count -eq 1) 'Snapshot does not contain exactly one Registry startup Collector run.'
+    Assert-Condition ($servicesRun.Count -eq 1) 'Snapshot does not contain exactly one Windows Services Collector run.'
+    Assert-Condition ($servicesRun[0].status -ceq 'partial') 'Services Collector did not report conservative partial coverage.'
+    Assert-Condition (@($servicesRun[0].coverage | Where-Object { $_.scope_id -ceq 'current_token.win32' -and $_.status -ceq 'partial' }).Count -eq 1) 'Snapshot does not report the Services current-token partial scope.'
     $null = Invoke-PreviewCommand -Executable $executable -Arguments @('diff', '--json', $snapshotPath, $snapshotPath)
 
     Write-Output 'Artifact-only smoke: --help passed'

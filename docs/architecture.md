@@ -81,7 +81,7 @@ Each observation separates:
 - stable fields that participate in default comparison;
 - volatile fields that are retained only when useful and excluded from default comparison.
 
-Identity is not a `Debug` string, full-JSON hash, localized display name, or executable judgment. Original Windows casing/value text is preserved. Registry startup Collector v1 deliberately uses exact UTF-16 value-name evidence rather than claiming an undocumented durable case-folded token; its known casing-only false-split limitation is versioned and documented in [collectors.md](collectors.md).
+Identity is not a `Debug` string, full-JSON hash, localized display name, or executable judgment. Original Windows casing/value text is preserved. Registry startup and Services Collector v1 deliberately use exact UTF-16 name evidence rather than claiming undocumented durable case-folded tokens; their known casing-only false-split limitations are versioned and documented in [collectors.md](collectors.md).
 
 Registry observations keep the native type code separate from a tagged typed decoding result. String, expandable-string, multi-string, DWORD, and QWORD interpretations therefore do not force unknown, binary, or malformed Registry data through a text-only model. A full-content SHA-256 keeps undecoded or truncated values comparable. Optional raw prefixes are limited to 4 KiB and use validated lowercase hex with captured/original sizes and truncation metadata; Collectors do not duplicate raw bytes when decoded evidence is sufficient.
 
@@ -114,7 +114,7 @@ The human renderer consumes a `DiffDocument`. The technical renderer also receiv
 Windows collection uses Unicode platform APIs through narrowly feature-gated `windows-rs` bindings:
 
 - Run/RunOnce (implemented): Registry APIs with explicit WOW64 views where applicable.
-- Services (planned): Service Control Manager enumeration and configuration query APIs.
+- Services (implemented): query-only Service Control Manager enumeration plus atomic base/description/delayed configuration reads, with current-token best-effort coverage.
 - Scheduled Tasks (planned): Task Scheduler 2.0 COM interfaces with recursive folder traversal.
 
 Command output from `reg.exe`, `sc.exe`, `schtasks.exe`, PowerShell, or WMI is not a data contract and will not be parsed. Detailed coverage and API references live in [collectors.md](collectors.md).

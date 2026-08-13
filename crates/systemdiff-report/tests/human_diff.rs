@@ -1,7 +1,7 @@
 use systemdiff_core::{
     Artifact, ArtifactKey, CollectorStatus, RegistryDecodedValue, RegistryHive,
     RegistryStartupEntry, RegistryStartupKind, RegistryValueDecoding, RegistryValueName,
-    RegistryView, RunOncePrefixSemantics, Snapshot,
+    RegistryView, RunOncePrefixSemantics, Snapshot, WindowsService,
 };
 use systemdiff_diff::{
     ArtifactChange, ChangeKind, DiffDocument, DiffOptions, DiffWarning, DiffWarningCode,
@@ -85,6 +85,41 @@ fn change(
     ArtifactChange {
         change_id: change_id.to_owned(),
         key: key(scope_id, canonical_id),
+        change,
+    }
+}
+
+fn windows_service(
+    service_name: &str,
+    display_name: Option<&str>,
+    start_type: u32,
+    delayed_auto_start: bool,
+) -> Artifact {
+    Artifact::WindowsService(WindowsService {
+        service_name: service_name.to_owned(),
+        display_name: display_name.map(str::to_owned),
+        service_type: 0x10,
+        start_type,
+        error_control: 1,
+        binary_path: "C:\\Program Files\\Example\\service.exe --service".to_owned(),
+        account: Some("NT AUTHORITY\\LocalService".to_owned()),
+        dependencies: vec!["RpcSs".to_owned(), "+NetworkProvider".to_owned()],
+        load_order_group: Some("ExampleGroup".to_owned()),
+        tag_id: Some(7),
+        delayed_auto_start,
+        description: Some("Provides an example background service.".to_owned()),
+    })
+}
+
+fn service_change(change_id: &str, canonical_id: &str, change: ChangeKind) -> ArtifactChange {
+    ArtifactChange {
+        change_id: change_id.to_owned(),
+        key: ArtifactKey {
+            collector_id: "windows.services".to_owned(),
+            scope_id: "current_token.win32".to_owned(),
+            artifact_kind: "windows_service".to_owned(),
+            canonical_id: canonical_id.to_owned(),
+        },
         change,
     }
 }
@@ -557,6 +592,270 @@ fn technical_multi_string_keeps_element_boundaries_and_empty_values() {
     let output = render_technical(&document, &before_fixture(), &after_fixture());
 
     assert!(output.contains(r#"multi_string (3 elements): [0]="a, b"; [1]=""; [2]="c""#));
+}
+
+#[test]
+fn service_changes_have_a_dedicated_factual_human_group() {
+    let added = windows_service("ExampleUpdater", Some("Example Update Service"), 2, true);
+    let removed = windows_service("LegacyAgent", None, 4, false);
+    let document = diff(vec![
+        service_change(
+            "change:v1:00000000",
+            "service-a",
+            ChangeKind::Added { after: added },
+        ),
+        service_change(
+            "change:v1:00000001",
+            "service-b",
+            ChangeKind::Removed { before: removed },
+        ),
+    ]);
+
+    let output = render_terminal(&document);
+
+    assert_eq!(occurrence_count(&output, "Windows service changes"), 1);
+    assert!(!output.contains("Other evidence changes"));
+    for expected in [
+        "Example Update Service",
+        "Added (Windows service)",
+        "Service name: ExampleUpdater",
+        "Automatic (delayed start)",
+        r#"C:\Program Files\Example\service.exe --service"#,
+        r#"NT AUTHORITY\LocalService"#,
+        "LegacyAgent",
+        "Removed (Windows service)",
+        "Disabled",
+    ] {
+        assert!(
+            output.contains(expected),
+            "human output omitted {expected:?}"
+        );
+    }
+    assert!(!output.contains("service-a"));
+    assert!(!output.to_ascii_lowercase().contains("malicious"));
+    assert!(!output.to_ascii_lowercase().contains("suspicious"));
+}
+
+#[test]
+fn modified_service_lists_only_fields_that_changed() {
+    let before = windows_service("ExampleUpdater", Some("Example Update Service"), 3, false);
+    let mut after = before.clone();
+    let Artifact::WindowsService(after_service) = &mut after else {
+        unreachable!("helper must return a service")
+    };
+    after_service.start_type = 2;
+    after_service.delayed_auto_start = true;
+    after_service.description = Some("Updated description".to_owned());
+    let document = diff(vec![service_change(
+        "change:v1:00000000",
+        "service-a",
+        ChangeKind::Modified { before, after },
+    )]);
+
+    let output = render_terminal(&document);
+
+    assert!(output.contains("Modified (Windows service)"));
+    assert!(output.contains("Start:"));
+    assert!(output.contains("Before: Manual (on demand)"));
+    assert!(output.contains("After:  Automatic (delayed start)"));
+    assert!(output.contains("Delayed automatic start configured:"));
+    assert!(output.contains("Before: No"));
+    assert!(output.contains("After:  Yes"));
+    assert!(output.contains("Description:"));
+    assert!(output.contains("Before: Provides an example background service."));
+    assert!(output.contains("After:  Updated description"));
+    assert!(!output.contains("Binary path:"));
+    assert!(!output.contains("Account:"));
+    assert!(!output.contains("Dependencies:"));
+    assert!(!output.contains("Load-order group:"));
+    assert!(!output.contains("Tag ID:"));
+    assert!(!output.contains("Error control:"));
+}
+
+#[test]
+fn delayed_flag_change_is_visible_for_non_automatic_service() {
+    let before = windows_service("ManualService", None, 3, false);
+    let mut after = before.clone();
+    let Artifact::WindowsService(after_service) = &mut after else {
+        unreachable!("helper must return a service")
+    };
+    after_service.delayed_auto_start = true;
+    let document = diff(vec![service_change(
+        "change:v1:00000000",
+        "manual-service",
+        ChangeKind::Modified { before, after },
+    )]);
+
+    let output = render_terminal(&document);
+
+    assert!(output.contains("Delayed automatic start configured:"));
+    assert!(output.contains("Before: No"));
+    assert!(output.contains("After:  Yes"));
+    assert!(!output.contains("Start:"));
+}
+
+#[test]
+fn inconclusive_service_absence_does_not_claim_removal() {
+    let observed = windows_service("MaybePresent", Some("Maybe Present Service"), 3, false);
+    let mut document = diff(vec![service_change(
+        "change:v1:00000000",
+        "service-a",
+        ChangeKind::Inconclusive {
+            before: Some(observed),
+            after: None,
+            reason: InconclusiveReason::CoverageIncomplete,
+        },
+    )]);
+    document.warnings.push(DiffWarning {
+        code: DiffWarningCode::CoverageIncomplete,
+        collector_id: "windows.services".to_owned(),
+        scope_id: "current_token.win32".to_owned(),
+        before_status: Some(CollectorStatus::Partial),
+        after_status: Some(CollectorStatus::Partial),
+    });
+
+    let output = render_terminal(&document);
+
+    assert!(output.contains("Inconclusive (Windows service)"));
+    assert!(
+        output
+            .to_ascii_lowercase()
+            .contains("current-token service coverage was incomplete in the after snapshot")
+    );
+    assert!(output.contains("removal could not be confirmed"));
+    assert!(output.contains("could not be confirmed"));
+    assert!(output.contains("Windows services visible to the current token"));
+    assert!(!output.contains("windows.services/current_token.win32"));
+    assert!(!output.contains("Removed"));
+}
+
+#[test]
+fn human_service_start_labels_keep_unknown_native_values_factual() {
+    let document = diff(vec![
+        service_change(
+            "change:v1:00000000",
+            "boot",
+            ChangeKind::Added {
+                after: windows_service("BootService", None, 0, false),
+            },
+        ),
+        service_change(
+            "change:v1:00000001",
+            "system",
+            ChangeKind::Added {
+                after: windows_service("SystemService", None, 1, false),
+            },
+        ),
+        service_change(
+            "change:v1:00000002",
+            "unknown",
+            ChangeKind::Added {
+                after: windows_service("FutureService", None, 99, false),
+            },
+        ),
+    ]);
+
+    let output = render_terminal(&document);
+
+    assert!(output.contains("Boot start"));
+    assert!(output.contains("System start"));
+    assert!(output.contains("Unknown (raw start type 99)"));
+}
+
+#[test]
+fn technical_service_output_preserves_every_field_and_known_absence() {
+    let artifact = windows_service("ExampleUpdater", Some("Example Update Service"), 99, false);
+    let document = diff(vec![service_change(
+        "change:v1:00000000",
+        "service-a",
+        ChangeKind::Added { after: artifact },
+    )]);
+
+    let output = render_technical(&document, &before_fixture(), &after_fixture());
+
+    for expected in [
+        "service name: ExampleUpdater",
+        r#"display name: "Example Update Service""#,
+        "service type: 16",
+        "start type: 99 (unknown native value)",
+        "error control: 1 (normal)",
+        r#"binary path: C:\Program Files\Example\service.exe --service"#,
+        r#"account: "NT AUTHORITY\\LocalService""#,
+        "dependencies (2):",
+        "[0]: RpcSs",
+        "[1]: +NetworkProvider",
+        r#"load-order group: "ExampleGroup""#,
+        "tag ID: 7",
+        "delayed auto-start: false",
+        r#"description: "Provides an example background service.""#,
+    ] {
+        assert!(
+            output.contains(expected),
+            "technical service output omitted {expected:?}\n{output}"
+        );
+    }
+
+    let mut absent = windows_service("MinimalService", None, 3, false);
+    let Artifact::WindowsService(service) = &mut absent else {
+        unreachable!("helper must return a service")
+    };
+    service.account = None;
+    service.dependencies.clear();
+    service.load_order_group = None;
+    service.tag_id = None;
+    service.description = None;
+    let absent_document = diff(vec![service_change(
+        "change:v1:00000001",
+        "service-b",
+        ChangeKind::Added { after: absent },
+    )]);
+    let absent_output = render_technical(&absent_document, &before_fixture(), &after_fixture());
+
+    assert!(absent_output.contains("display name: none"));
+    assert!(absent_output.contains("account: none"));
+    assert!(absent_output.contains("dependencies: none"));
+    assert!(absent_output.contains("load-order group: none"));
+    assert!(absent_output.contains("tag ID: none"));
+    assert!(absent_output.contains("description: none"));
+}
+
+#[test]
+fn service_evidence_cannot_inject_terminal_lines_or_bidi_controls() {
+    let artifact = Artifact::WindowsService(WindowsService {
+        service_name: "Evil\nService\u{202e}".to_owned(),
+        display_name: Some("Display\r\nInjected\u{1b}[31m".to_owned()),
+        service_type: 0x10,
+        start_type: 2,
+        error_control: 1,
+        binary_path: "C:\\evil\tservice.exe\u{2028}".to_owned(),
+        account: Some("Account\u{2066}".to_owned()),
+        dependencies: vec!["Dep\nOne".to_owned()],
+        load_order_group: Some("Group\u{202a}".to_owned()),
+        tag_id: None,
+        delayed_auto_start: false,
+        description: Some("Description\rTwo".to_owned()),
+    });
+    let document = diff(vec![service_change(
+        "change:v1:00000000",
+        "service-a",
+        ChangeKind::Added { after: artifact },
+    )]);
+
+    for output in [
+        render_terminal(&document),
+        render_technical(&document, &before_fixture(), &after_fixture()),
+    ] {
+        assert!(!output.contains('\u{1b}'));
+        assert!(!output.contains('\r'));
+        assert!(!output.contains('\t'));
+        assert!(!output.contains('\u{202e}'));
+        assert!(!output.contains('\u{2028}'));
+        assert!(!output.contains('\u{2066}'));
+        assert!(!output.contains('\u{202a}'));
+        assert!(output.contains("Display\\r\\nInjected\\u{1b}[31m"));
+        assert!(output.contains("Evil\\nService\\u{202e}"));
+        assert!(output.contains("C:\\evil\\tservice.exe\\u{2028}"));
+    }
 }
 
 #[test]

@@ -1,6 +1,6 @@
 # SystemDiff Windows x64 Developer Preview
 
-This is an **unsigned, pre-release Developer Preview**, not an official SystemDiff release. It currently observes only the documented Windows Registry `Run` and `RunOnce` startup locations. Windows Services and Scheduled Tasks are not implemented.
+This is an **unsigned, pre-release Developer Preview**, not an official SystemDiff release. It observes documented Windows Registry `Run`/`RunOnce` startup locations and current-token-visible Windows service configuration. Scheduled Tasks are not implemented.
 
 SystemDiff runs locally, requires no account, includes no telemetry, and its product behavior is read-only. This package targets Windows x64. The current minimum collection platform is Windows 10 version 1709 or Windows Server 2016 version 1709.
 
@@ -13,7 +13,7 @@ Open PowerShell in the extracted directory:
 .\systemdiff.exe collectors
 ```
 
-Administrator privileges are not required. If Windows limits access to a Registry scope, SystemDiff reports the coverage gap instead of silently treating missing evidence as a removal.
+Administrator privileges are not required. Registry permission gaps are reported explicitly. Windows can silently omit services the current token cannot query, so Services v1 always reports best-effort partial coverage and never treats a missing service as a confirmed removal.
 
 ## Compare before and after
 
@@ -30,7 +30,7 @@ Use `diff --technical` for exact text evidence or `diff --json` for the versione
 
 ## Privacy
 
-Snapshots and all report modes are unredacted. They may contain command strings, usernames in paths, hashes, and other host details. Review every file before sharing it, and never attach an unreviewed real Snapshot or report to a public Issue.
+Snapshots and all report modes are unredacted. They may contain service accounts, paths and arguments, descriptions, command strings, usernames, hashes, and other host details. Review every file before sharing it, and never attach an unreviewed real Snapshot or report to a public Issue.
 
 ## Trust and removal
 

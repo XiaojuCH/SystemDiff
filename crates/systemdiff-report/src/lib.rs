@@ -96,10 +96,28 @@ pub fn render_terminal(diff: &DiffDocument) -> String {
         }
     }
 
+    let service_changes: Vec<_> = diff
+        .changes
+        .iter()
+        .filter(|item| change_artifact(item).is_some_and(is_windows_service))
+        .collect();
+    if !service_changes.is_empty() {
+        let _ = writeln!(output, "\nWindows service changes\n");
+        for (index, item) in service_changes.into_iter().enumerate() {
+            if index > 0 {
+                let _ = writeln!(output);
+            }
+            render_human_service_change(&mut output, item);
+        }
+    }
+
     let other_changes: Vec<_> = diff
         .changes
         .iter()
-        .filter(|item| !change_artifact(item).is_some_and(is_registry))
+        .filter(|item| {
+            !change_artifact(item)
+                .is_some_and(|artifact| is_registry(artifact) || is_windows_service(artifact))
+        })
         .collect();
     if !other_changes.is_empty() {
         let _ = writeln!(output, "\nOther evidence changes\n");
@@ -336,6 +354,221 @@ fn render_human_registry_change(output: &mut String, item: &ArtifactChange) {
     }
 }
 
+fn render_human_service_change(output: &mut String, item: &ArtifactChange) {
+    match &item.change {
+        ChangeKind::Added {
+            after: Artifact::WindowsService(service),
+        } => {
+            human_service_heading(output, '+', "Added", service);
+            render_human_service_summary(output, service);
+        }
+        ChangeKind::Removed {
+            before: Artifact::WindowsService(service),
+        } => {
+            human_service_heading(output, '-', "Removed", service);
+            render_human_service_summary(output, service);
+        }
+        ChangeKind::Modified {
+            before: Artifact::WindowsService(before),
+            after: Artifact::WindowsService(after),
+        } => {
+            human_service_heading(output, '~', "Modified", after);
+            render_human_service_modifications(output, before, after);
+        }
+        ChangeKind::Unchanged {
+            artifact: Artifact::WindowsService(service),
+        } => {
+            human_service_heading(output, '=', "Unchanged", service);
+            let _ = writeln!(
+                output,
+                "    No change in the captured service configuration"
+            );
+        }
+        ChangeKind::Inconclusive { before, after, .. } => {
+            let service = before.as_ref().or(after.as_ref()).and_then(service_entry);
+            if let Some(service) = service {
+                human_service_heading(output, '?', "Inconclusive", service);
+                let explanation = match (before.is_some(), after.is_some()) {
+                    (true, false) => {
+                        "Current-token service coverage was incomplete in the after Snapshot, so removal could not be confirmed."
+                    }
+                    (false, true) => {
+                        "Current-token service coverage was incomplete in the before Snapshot, so addition could not be confirmed."
+                    }
+                    _ => {
+                        "Current-token service coverage was incomplete, so this change could not be confirmed."
+                    }
+                };
+                let _ = writeln!(output, "    {explanation}");
+                render_human_service_summary(output, service);
+            }
+        }
+        _ => render_human_fallback(output, item),
+    }
+}
+
+fn human_service_heading(
+    output: &mut String,
+    symbol: char,
+    change: &str,
+    service: &systemdiff_core::WindowsService,
+) {
+    let _ = writeln!(output, "  {symbol} {}", human_service_name(service));
+    let _ = writeln!(output, "    {change} (Windows service)");
+    let _ = writeln!(
+        output,
+        "    Service name: {}",
+        terminal_text(&service.service_name)
+    );
+}
+
+fn render_human_service_summary(output: &mut String, service: &systemdiff_core::WindowsService) {
+    let _ = writeln!(
+        output,
+        "    Start: {}\n    Binary path: {}\n    Account: {}",
+        human_service_start(service.start_type, service.delayed_auto_start),
+        terminal_text(&service.binary_path),
+        human_optional_text(service.account.as_deref())
+    );
+}
+
+fn render_human_service_modifications(
+    output: &mut String,
+    before: &systemdiff_core::WindowsService,
+    after: &systemdiff_core::WindowsService,
+) {
+    if before.service_name != after.service_name {
+        render_human_changed_text(
+            output,
+            "Service name",
+            &before.service_name,
+            &after.service_name,
+        );
+    }
+    if before.display_name != after.display_name {
+        render_human_changed_optional_text(
+            output,
+            "Display name",
+            before.display_name.as_deref(),
+            after.display_name.as_deref(),
+        );
+    }
+    if before.service_type != after.service_type {
+        render_human_changed_value(
+            output,
+            "Service type",
+            before.service_type,
+            after.service_type,
+        );
+    }
+    if before.start_type != after.start_type {
+        render_human_changed_display(
+            output,
+            "Start",
+            &human_service_start(before.start_type, before.delayed_auto_start),
+            &human_service_start(after.start_type, after.delayed_auto_start),
+        );
+    }
+    if before.delayed_auto_start != after.delayed_auto_start {
+        render_human_changed_display(
+            output,
+            "Delayed automatic start configured",
+            human_bool(before.delayed_auto_start),
+            human_bool(after.delayed_auto_start),
+        );
+    }
+    if before.error_control != after.error_control {
+        render_human_changed_display(
+            output,
+            "Error control",
+            &human_error_control(before.error_control),
+            &human_error_control(after.error_control),
+        );
+    }
+    if before.binary_path != after.binary_path {
+        render_human_changed_text(
+            output,
+            "Binary path",
+            &before.binary_path,
+            &after.binary_path,
+        );
+    }
+    if before.account != after.account {
+        render_human_changed_optional_text(
+            output,
+            "Account",
+            before.account.as_deref(),
+            after.account.as_deref(),
+        );
+    }
+    if before.dependencies != after.dependencies {
+        render_human_changed_display(
+            output,
+            "Dependencies",
+            &human_dependencies(&before.dependencies),
+            &human_dependencies(&after.dependencies),
+        );
+    }
+    if before.load_order_group != after.load_order_group {
+        render_human_changed_optional_text(
+            output,
+            "Load-order group",
+            before.load_order_group.as_deref(),
+            after.load_order_group.as_deref(),
+        );
+    }
+    if before.tag_id != after.tag_id {
+        render_human_changed_display(
+            output,
+            "Tag ID",
+            &human_optional_u32(before.tag_id),
+            &human_optional_u32(after.tag_id),
+        );
+    }
+    if before.description != after.description {
+        render_human_changed_optional_text(
+            output,
+            "Description",
+            before.description.as_deref(),
+            after.description.as_deref(),
+        );
+    }
+}
+
+fn render_human_changed_text(output: &mut String, label: &str, before: &str, after: &str) {
+    render_human_changed_display(output, label, &terminal_text(before), &terminal_text(after));
+}
+
+fn render_human_changed_optional_text(
+    output: &mut String,
+    label: &str,
+    before: Option<&str>,
+    after: Option<&str>,
+) {
+    render_human_changed_display(
+        output,
+        label,
+        &human_optional_text(before),
+        &human_optional_text(after),
+    );
+}
+
+fn render_human_changed_value<T: fmt::Display>(
+    output: &mut String,
+    label: &str,
+    before: T,
+    after: T,
+) {
+    render_human_changed_display(output, label, &before.to_string(), &after.to_string());
+}
+
+fn render_human_changed_display(output: &mut String, label: &str, before: &str, after: &str) {
+    let _ = writeln!(
+        output,
+        "    {label}:\n      Before: {before}\n      After:  {after}"
+    );
+}
+
 fn human_entry_heading(
     output: &mut String,
     symbol: char,
@@ -458,17 +691,7 @@ fn render_technical_artifact(output: &mut String, heading: &str, artifact: &Arti
     match artifact {
         Artifact::RegistryStartup(entry) => render_technical_registry(output, entry),
         Artifact::WindowsService(service) => {
-            let _ = writeln!(
-                output,
-                "    service name: {}\n    display name: {}\n    binary path: {}",
-                terminal_text(&service.service_name),
-                service
-                    .display_name
-                    .as_deref()
-                    .map(terminal_text)
-                    .unwrap_or_else(|| "none".to_owned()),
-                terminal_text(&service.binary_path)
-            );
+            render_technical_service(output, service);
         }
         Artifact::ScheduledTask(task) => {
             let _ = writeln!(
@@ -481,6 +704,41 @@ fn render_technical_artifact(output: &mut String, heading: &str, artifact: &Arti
             );
         }
     }
+}
+
+fn render_technical_service(output: &mut String, service: &systemdiff_core::WindowsService) {
+    let _ = writeln!(
+        output,
+        "    service name: {}\n    display name: {}\n    service type: {}\n    start type: {} ({})\n    error control: {} ({})\n    binary path: {}\n    account: {}",
+        terminal_text(&service.service_name),
+        technical_optional_literal(service.display_name.as_deref()),
+        service.service_type,
+        service.start_type,
+        technical_start_type(service.start_type),
+        service.error_control,
+        technical_error_control(service.error_control),
+        terminal_text(&service.binary_path),
+        technical_optional_literal(service.account.as_deref())
+    );
+    if service.dependencies.is_empty() {
+        let _ = writeln!(output, "    dependencies: none");
+    } else {
+        let _ = writeln!(output, "    dependencies ({}):", service.dependencies.len());
+        for (index, dependency) in service.dependencies.iter().enumerate() {
+            let _ = writeln!(output, "      [{index}]: {}", terminal_text(dependency));
+        }
+    }
+    let _ = writeln!(
+        output,
+        "    load-order group: {}\n    tag ID: {}\n    delayed auto-start: {}\n    description: {}",
+        technical_optional_literal(service.load_order_group.as_deref()),
+        service
+            .tag_id
+            .map(|tag| tag.to_string())
+            .unwrap_or_else(|| "none".to_owned()),
+        service.delayed_auto_start,
+        technical_optional_literal(service.description.as_deref())
+    );
 }
 
 fn render_technical_registry(output: &mut String, entry: &RegistryStartupEntry) {
@@ -622,8 +880,19 @@ fn registry_entry(artifact: &Artifact) -> Option<&RegistryStartupEntry> {
     }
 }
 
+fn service_entry(artifact: &Artifact) -> Option<&systemdiff_core::WindowsService> {
+    match artifact {
+        Artifact::WindowsService(service) => Some(service),
+        _ => None,
+    }
+}
+
 fn is_registry(artifact: &Artifact) -> bool {
     matches!(artifact, Artifact::RegistryStartup(_))
+}
+
+fn is_windows_service(artifact: &Artifact) -> bool {
+    matches!(artifact, Artifact::WindowsService(_))
 }
 
 fn human_artifact_name(artifact: &Artifact) -> String {
@@ -636,6 +905,92 @@ fn human_artifact_name(artifact: &Artifact) -> String {
             .map(terminal_text)
             .unwrap_or_else(|| terminal_text(&service.service_name)),
         Artifact::ScheduledTask(task) => terminal_text(&task.task_path),
+    }
+}
+
+fn human_service_name(service: &systemdiff_core::WindowsService) -> String {
+    service
+        .display_name
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .map(terminal_text)
+        .unwrap_or_else(|| terminal_text(&service.service_name))
+}
+
+fn human_service_start(start_type: u32, delayed_auto_start: bool) -> String {
+    match start_type {
+        0 => "Boot start".to_owned(),
+        1 => "System start".to_owned(),
+        2 if delayed_auto_start => "Automatic (delayed start)".to_owned(),
+        2 => "Automatic".to_owned(),
+        3 => "Manual (on demand)".to_owned(),
+        4 => "Disabled".to_owned(),
+        value => format!("Unknown (raw start type {value})"),
+    }
+}
+
+fn human_error_control(error_control: u32) -> String {
+    match error_control {
+        0 => "Ignore (raw value 0)".to_owned(),
+        1 => "Normal (raw value 1)".to_owned(),
+        2 => "Severe (raw value 2)".to_owned(),
+        3 => "Critical (raw value 3)".to_owned(),
+        value => format!("Unknown (raw value {value})"),
+    }
+}
+
+fn human_optional_text(value: Option<&str>) -> String {
+    value
+        .map(terminal_text)
+        .unwrap_or_else(|| "Not set".to_owned())
+}
+
+fn human_optional_u32(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "Not set".to_owned())
+}
+
+fn human_bool(value: bool) -> &'static str {
+    if value { "Yes" } else { "No" }
+}
+
+fn human_dependencies(dependencies: &[String]) -> String {
+    if dependencies.is_empty() {
+        "None".to_owned()
+    } else {
+        dependencies
+            .iter()
+            .map(|dependency| terminal_text(dependency))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+fn technical_optional_literal(value: Option<&str>) -> String {
+    value
+        .map(technical_literal)
+        .unwrap_or_else(|| "none".to_owned())
+}
+
+fn technical_start_type(start_type: u32) -> &'static str {
+    match start_type {
+        0 => "boot",
+        1 => "system",
+        2 => "automatic",
+        3 => "manual/on_demand",
+        4 => "disabled",
+        _ => "unknown native value",
+    }
+}
+
+fn technical_error_control(error_control: u32) -> &'static str {
+    match error_control {
+        0 => "ignore",
+        1 => "normal",
+        2 => "severe",
+        3 => "critical",
+        _ => "unknown native value",
     }
 }
 
@@ -818,6 +1173,9 @@ fn human_view_suffix(view: RegistryView) -> &'static str {
 }
 
 fn human_scope_label(collector_id: &str, scope_id: &str) -> String {
+    if collector_id == "windows.services" && scope_id == "current_token.win32" {
+        return "Windows services visible to the current token".to_owned();
+    }
     if collector_id != "windows.registry.startup" {
         return format!(
             "{}/{}",

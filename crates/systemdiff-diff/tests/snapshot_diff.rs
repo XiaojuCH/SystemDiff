@@ -22,7 +22,7 @@ fn registry_snapshots() -> (Snapshot, Snapshot) {
 }
 
 #[test]
-fn classifies_added_removed_modified_and_inconclusive_changes() {
+fn broad_fixture_classifies_confirmed_and_inconclusive_changes() {
     let (before, after) = snapshots();
     let diff = diff_snapshots(&before, &after, DiffOptions::default())
         .expect("synthetic snapshots must be comparable");
@@ -35,19 +35,106 @@ fn classifies_added_removed_modified_and_inconclusive_changes() {
     assert!(
         diff.changes
             .iter()
-            .any(|change| matches!(&change.change, ChangeKind::Removed { .. }))
-    );
-    assert!(
-        diff.changes
-            .iter()
             .any(|change| matches!(&change.change, ChangeKind::Modified { .. }))
     );
     assert!(diff.changes.iter().any(|change| {
         change.key.collector_id == "windows.scheduled_tasks"
             && matches!(&change.change, ChangeKind::Inconclusive { .. })
     }));
-    assert_eq!(diff.warnings.len(), 1);
-    assert_eq!(diff.warnings[0].collector_id, "windows.scheduled_tasks");
+    assert_eq!(diff.warnings.len(), 2);
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|warning| warning.collector_id == "windows.services")
+    );
+    assert!(
+        diff.warnings
+            .iter()
+            .any(|warning| warning.collector_id == "windows.scheduled_tasks")
+    );
+}
+
+fn service_fixture_snapshot(path: &str) -> Snapshot {
+    let text = match path {
+        "before" => include_str!("../../../fixtures/snapshots/services-added-before-v1.json"),
+        "after" => include_str!("../../../fixtures/snapshots/services-added-after-v1.json"),
+        _ => unreachable!(),
+    };
+    serde_json::from_str(text).expect("focused Services fixture must deserialize")
+}
+
+#[test]
+fn complete_service_scope_confirms_added_and_removed() {
+    let before = service_fixture_snapshot("before");
+    let after = service_fixture_snapshot("after");
+    let added = diff_snapshots(&before, &after, DiffOptions::default())
+        .expect("complete service fixture must compare");
+    assert_eq!(added.changes.len(), 1);
+    assert!(matches!(added.changes[0].change, ChangeKind::Added { .. }));
+
+    let removed = diff_snapshots(&after, &before, DiffOptions::default())
+        .expect("reversed complete service fixture must compare");
+    assert_eq!(removed.changes.len(), 1);
+    assert!(matches!(
+        removed.changes[0].change,
+        ChangeKind::Removed { .. }
+    ));
+}
+
+#[test]
+fn directly_observed_service_fields_compare_as_modified_under_partial_coverage() {
+    let mut before = service_fixture_snapshot("after");
+    let mut after = before.clone();
+    for snapshot in [&mut before, &mut after] {
+        snapshot.collectors[0].status = CollectorStatus::Partial;
+        snapshot.collectors[0].coverage[0].status = CollectorStatus::Partial;
+        snapshot.collectors[0]
+            .diagnostics
+            .push(systemdiff_core::Diagnostic {
+                code: "service_visibility_best_effort".to_owned(),
+                message: "Synthetic current-token coverage is incomplete.".to_owned(),
+                stage: Some("enumerate".to_owned()),
+                native_code: None,
+                scope_id: Some("current_token.win32".to_owned()),
+            });
+    }
+    let Artifact::WindowsService(service) = &mut after.observations[0].artifact else {
+        unreachable!()
+    };
+    service.start_type = 2;
+    service.binary_path = r#"%ProgramFiles%\Example\new-service.exe --service"#.to_owned();
+    service.description = Some("Updated description only where stated.".to_owned());
+
+    let diff = diff_snapshots(&before, &after, DiffOptions::default())
+        .expect("direct service evidence must compare");
+    assert!(matches!(
+        diff.changes[0].change,
+        ChangeKind::Modified { .. }
+    ));
+}
+
+#[test]
+fn partial_service_scope_never_turns_disappearance_into_removed() {
+    let before = service_fixture_snapshot("after");
+    let mut after = service_fixture_snapshot("before");
+    after.collectors[0].status = CollectorStatus::Partial;
+    after.collectors[0].coverage[0].status = CollectorStatus::Partial;
+    after.collectors[0]
+        .diagnostics
+        .push(systemdiff_core::Diagnostic {
+            code: "service_visibility_best_effort".to_owned(),
+            message: "Synthetic current-token coverage is incomplete.".to_owned(),
+            stage: Some("enumerate".to_owned()),
+            native_code: None,
+            scope_id: Some("current_token.win32".to_owned()),
+        });
+
+    let diff = diff_snapshots(&before, &after, DiffOptions::default())
+        .expect("partial service fixture must compare conservatively");
+    assert!(matches!(
+        diff.changes[0].change,
+        ChangeKind::Inconclusive { .. }
+    ));
 }
 
 #[test]
