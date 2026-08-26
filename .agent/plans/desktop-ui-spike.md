@@ -248,6 +248,7 @@ The new presentation IPC model begins at contract version 1 but is not the publi
 - `localhost` and a Vite server explicitly bound to `127.0.0.1` are not necessarily the same endpoint on an IPv6-preferring host; keep the Tauri development URL and Vite bind address exactly aligned.
 - A permanent zero-byte root lock file is intentionally not session evidence. The process holds an advisory file lock for its lifetime so a second instance cannot run stale-session recovery against an active capture.
 - GitHub's `stable` channel advanced to Rust/Clippy 1.98.0 during final validation and enabled `chunks_exact_to_as_chunks` under `-D warnings`. Replacing the two existing fixed-width decode iterators with Clippy's equivalent `as_chunks` form keeps stable CI green without pinning an obsolete toolchain or changing decoding semantics.
+- The desktop crate intentionally links the Tauri runtime only on Windows while keeping pure session/storage tests cross-platform. Its build script must mirror that boundary: invoking Tauri manifest generation on Ubuntu expects runtime build metadata that cannot exist there. The non-Windows build script is therefore a no-op; Ubuntu still compiles, lints, and tests the backend code.
 
 ## Decisions
 
@@ -275,6 +276,7 @@ Completed local checks:
 - root `cargo fmt --all --check` and `cargo clippy --locked --workspace --all-targets -- -D warnings`: passed.
 - root `cargo test --locked --workspace --all-targets`: 119 passed, zero failed.
 - after remote Clippy 1.98 exposed the new lint in two pre-existing fixed-width decoders, the equivalent iterator updates passed root fmt, Clippy, and all 119 tests locally; authoritative 1.98 confirmation is delegated to the replacement GitHub run.
+- after Ubuntu exposed the over-broad Tauri build-script invocation, gating manifest/command generation to Windows passed desktop fmt, Clippy, tests, and a Windows no-bundle release build locally; authoritative Ubuntu confirmation is delegated to the replacement GitHub run.
 - desktop Cargo fmt/Clippy checks: passed; desktop `cargo test --locked ... --all-targets`: 16 passed, zero failed, including managed bootstrap errors, storage-initialization routing, visible cleanup state, and normal/deferred shutdown semantics.
 - `npm --prefix apps/desktop run tauri -- build -- --no-bundle`: passed; produced `apps/desktop/src-tauri/target/release/systemdiff-desktop.exe`, 8,930,304 bytes. Direct PE parsing reported PE32+ magic `0x020B` and subsystem `2` (Windows GUI, no console subsystem).
 - CLI human Diff, JSON Diff, and Collector-list smoke commands: passed.

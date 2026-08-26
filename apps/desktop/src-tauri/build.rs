@@ -1,3 +1,4 @@
+#[cfg(windows)]
 const COMMANDS: &[&str] = &[
     "get_session_state",
     "start_capture",
@@ -7,7 +8,10 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
-    let attributes = tauri_build::Attributes::new()
-        .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
-    tauri_build::try_build(attributes).expect("failed to prepare the Tauri application");
+    #[cfg(windows)]
+    {
+        let attributes = tauri_build::Attributes::new()
+            .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
+        tauri_build::try_build(attributes).expect("failed to prepare the Tauri application");
+    }
 }
