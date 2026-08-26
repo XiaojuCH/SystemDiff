@@ -720,7 +720,9 @@ fn utf16le_units(data: &[u8]) -> Option<Vec<u16>> {
         return None;
     }
     Some(
-        data.chunks_exact(2)
+        data.as_chunks::<2>()
+            .0
+            .iter()
             .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
             .collect(),
     )
