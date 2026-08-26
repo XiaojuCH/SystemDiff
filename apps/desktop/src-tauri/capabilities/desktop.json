@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "The single local SystemDiff desktop window can invoke only the guided capture workflow.",
+  "windows": ["main"],
+  "permissions": [
+    "allow-get-session-state",
+    "allow-start-capture",
+    "allow-finish-capture",
+    "allow-cancel-capture",
+    "allow-get-technical-details"
+  ]
+}

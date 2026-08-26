@@ -10,7 +10,7 @@ The roadmap is outcome-oriented. Dates are intentionally omitted until the proje
 
 Exit condition: the repository is understandable, reviewable, and ready for the first collector issue without pretending the product already works.
 
-Status: complete. The first Collector phase is now underway.
+Status: complete. The first two Collector vertical slices and a guided desktop development slice now build on this foundation.
 
 ## v0.1: CLI evidence pipeline
 
@@ -33,15 +33,17 @@ Required scope:
 - Independent collector failures and clear privilege/coverage reporting.
 - Deterministic fixtures and snapshot-to-diff integration tests that do not need administrator privileges.
 
-Explicitly excluded: whole-drive crawling, remediation, telemetry, cloud analysis, broad persistence coverage, and a large GUI.
+Explicitly excluded: whole-drive crawling, remediation, telemetry, cloud analysis, broad persistence coverage, and a large multi-page GUI. The first small guided desktop workflow is being validated in parallel without changing the CLI evidence milestone.
 
 ## v0.2: polished desktop workflow
 
-- Validate and adopt the Tauri 2 + React + TypeScript stack after a narrow security-focused spike.
-- Guide users through snapshot A → change → snapshot B → explanation.
-- Show plain-language summaries without hiding raw evidence.
-- Ship maintained `en-US` and `zh-CN` locales.
+- Tauri 2 + React + TypeScript was accepted after a narrow security-focused spike. **Implemented for the first development vertical slice; distribution validation continues.**
+- Guide users through start capture → make a change → finish and compare without file handling or Snapshot terminology. **Implemented for the first development vertical slice.**
+- Show plain-language Startup and Windows Services summaries without hiding raw technical evidence. **Implemented for the first development vertical slice.**
+- Ship maintained `en-US` and `zh-CN` locales. **Implemented in the first desktop UI; localization review remains ongoing.**
 - Establish Windows packaging and code-signing strategy before encouraging ordinary-user installation.
+
+The first slice intentionally has no history, baseline management, settings center, dashboard, risk score, updater, or desktop Release artifact. It proves the product workflow; it is not yet the polished v0.2 distribution milestone.
 
 ## v0.3: safe sharing and richer explanations
 

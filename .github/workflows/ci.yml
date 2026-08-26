@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - main
-      # Narrow pre-merge candidate validation for Issue #11.
-      - feat/windows-services
+      # Narrow pre-merge candidate validation for Issue #13.
+      - feat/desktop-capture-workflow
   pull_request:
 
 permissions:
@@ -56,10 +56,65 @@ jobs:
       - name: List Collector status
         run: cargo run --locked -p systemdiff-cli -- collectors
 
+  desktop:
+    name: Desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix apps/desktop
+
+      - name: Type-check frontend
+        run: npm run check --prefix apps/desktop
+
+      - name: Lint frontend
+        run: npm run lint --prefix apps/desktop
+
+      - name: Build frontend
+        run: npm run build --prefix apps/desktop
+
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+
+      - name: Select stable Rust
+        run: rustup default stable
+
+      - name: Check desktop Rust formatting
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check
+
+      - name: Lint desktop Rust
+        run: cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test desktop Rust
+        run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
+
+      - name: Build Windows desktop executable
+        if: runner.os == 'Windows'
+        run: npm --prefix apps/desktop run tauri -- build -- --no-bundle
+
   package-windows-preview:
     name: Package Windows developer preview
     if: github.event_name == 'push'
-    needs: rust
+    needs:
+      - rust
+      - desktop
     runs-on: windows-latest
     timeout-minutes: 30
 
