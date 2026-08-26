@@ -145,6 +145,7 @@ Security decision:
 - `.agent/plans/desktop-ui-spike.md` and `.agent/PROJECT_STATE.md`
 - `docs/adr/0003-desktop-stack.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/threat-model.md`
 - `crates/systemdiff-report/src/lib.rs` and a focused presentation module/tests
+- `crates/systemdiff-core/src/lib.rs` only for an equivalent current-stable Clippy compatibility fix discovered by remote CI
 - `apps/desktop` frontend, Tauri backend, separate Cargo/npm lockfiles, and developer documentation
 - `.github/workflows/ci.yml`
 - a guarded test-only desktop dogfood script under `scripts/`
@@ -246,6 +247,7 @@ The new presentation IPC model begins at contract version 1 but is not the publi
 - WebView2 supports Windows 10 1709 at the platform level, but only 1803+ is normally preinstalled. A naked development executable is not a clean-machine distribution strategy.
 - `localhost` and a Vite server explicitly bound to `127.0.0.1` are not necessarily the same endpoint on an IPv6-preferring host; keep the Tauri development URL and Vite bind address exactly aligned.
 - A permanent zero-byte root lock file is intentionally not session evidence. The process holds an advisory file lock for its lifetime so a second instance cannot run stale-session recovery against an active capture.
+- GitHub's `stable` channel advanced to Rust/Clippy 1.98.0 during final validation and enabled `chunks_exact_to_as_chunks` under `-D warnings`. Replacing one existing fixed-width decode iterator with Clippy's equivalent `as_chunks::<4>()` form keeps stable CI green without pinning an obsolete toolchain or changing decoding semantics.
 
 ## Decisions
 
@@ -272,6 +274,7 @@ Completed local checks:
 - `npm audit --prefix apps/desktop --audit-level=low --json`: zero info/low/moderate/high/critical vulnerabilities in the locked npm graph.
 - root `cargo fmt --all --check` and `cargo clippy --locked --workspace --all-targets -- -D warnings`: passed.
 - root `cargo test --locked --workspace --all-targets`: 119 passed, zero failed.
+- after remote Clippy 1.98 exposed one new lint in pre-existing core decode code, the equivalent one-line iterator update passed root fmt, Clippy, and all 119 tests locally; authoritative 1.98 confirmation is delegated to the replacement GitHub run.
 - desktop Cargo fmt/Clippy checks: passed; desktop `cargo test --locked ... --all-targets`: 16 passed, zero failed, including managed bootstrap errors, storage-initialization routing, visible cleanup state, and normal/deferred shutdown semantics.
 - `npm --prefix apps/desktop run tauri -- build -- --no-bundle`: passed; produced `apps/desktop/src-tauri/target/release/systemdiff-desktop.exe`, 8,930,304 bytes. Direct PE parsing reported PE32+ magic `0x020B` and subsystem `2` (Windows GUI, no console subsystem).
 - CLI human Diff, JSON Diff, and Collector-list smoke commands: passed.
