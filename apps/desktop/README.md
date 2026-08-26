@@ -41,7 +41,7 @@ cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check
 cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
 
-npm --prefix apps/desktop run tauri -- build -- --no-bundle
+npm run tauri:build --prefix apps/desktop
 ```
 
 The last command produces an unsigned development executable under `apps/desktop/src-tauri/target/release/`. It depends on the installed WebView2 Runtime and is not an installer or an official downloadable release.

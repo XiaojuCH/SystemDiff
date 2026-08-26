@@ -202,7 +202,7 @@ npm run build --prefix apps/desktop
 cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check
 cargo clippy --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets
-npm --prefix apps/desktop run tauri -- build -- --no-bundle
+npm run tauri:build --prefix apps/desktop
 ```
 
 The exact CI and manual dogfood commands will be recorded with observed output in Final validation. No success will be inferred.
@@ -249,6 +249,7 @@ The new presentation IPC model begins at contract version 1 but is not the publi
 - A permanent zero-byte root lock file is intentionally not session evidence. The process holds an advisory file lock for its lifetime so a second instance cannot run stale-session recovery against an active capture.
 - GitHub's `stable` channel advanced to Rust/Clippy 1.98.0 during final validation and enabled `chunks_exact_to_as_chunks` under `-D warnings`. Replacing the two existing fixed-width decode iterators with Clippy's equivalent `as_chunks` form keeps stable CI green without pinning an obsolete toolchain or changing decoding semantics.
 - The desktop crate intentionally links the Tauri runtime only on Windows while keeping pure session/storage tests cross-platform. Its build script must mirror that boundary: invoking Tauri manifest generation on Ubuntu expects runtime build metadata that cannot exist there. The non-Windows build script is therefore a no-op; Ubuntu still compiles, lints, and tests the backend code.
+- npm 10 and npm 12 forward nested `--` arguments differently. Keeping `--no-bundle` inside a locked `tauri:build` package script makes the local and GitHub Windows build command deterministic instead of relying on version-specific CLI argument forwarding.
 
 ## Decisions
 
@@ -278,7 +279,7 @@ Completed local checks:
 - after remote Clippy 1.98 exposed the new lint in two pre-existing fixed-width decoders, the equivalent iterator updates passed root fmt, Clippy, and all 119 tests locally; authoritative 1.98 confirmation is delegated to the replacement GitHub run.
 - after Ubuntu exposed the over-broad Tauri build-script invocation, gating manifest/command generation to Windows passed desktop fmt, Clippy, tests, and a Windows no-bundle release build locally; authoritative Ubuntu confirmation is delegated to the replacement GitHub run.
 - desktop Cargo fmt/Clippy checks: passed; desktop `cargo test --locked ... --all-targets`: 16 passed, zero failed, including managed bootstrap errors, storage-initialization routing, visible cleanup state, and normal/deferred shutdown semantics.
-- `npm --prefix apps/desktop run tauri -- build -- --no-bundle`: passed; produced `apps/desktop/src-tauri/target/release/systemdiff-desktop.exe`, 8,930,304 bytes. Direct PE parsing reported PE32+ magic `0x020B` and subsystem `2` (Windows GUI, no console subsystem).
+- `npm run tauri:build --prefix apps/desktop`: passed; produced `apps/desktop/src-tauri/target/release/systemdiff-desktop.exe`, 8,930,304 bytes. Direct PE parsing reported PE32+ magic `0x020B` and subsystem `2` (Windows GUI, no console subsystem).
 - CLI human Diff, JSON Diff, and Collector-list smoke commands: passed.
 - existing CLI package and downloaded-artifact-style verifier: passed. It retained the exact two-file outer artifact and five-file portable ZIP, AMD64/asInvoker/uiAccess=false/static-CRT import boundary, all CLI modes, and a real read-only Snapshot smoke.
 - desktop Cargo metadata contained 425 registry packages across its all-platform locked graph, with zero missing license metadata and zero Git dependencies. `cargo-audit` was not installed, so no RustSec success is claimed; nested Cargo and npm Dependabot entries were added.

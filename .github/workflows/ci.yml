@@ -107,7 +107,7 @@ jobs:
 
       - name: Build Windows desktop executable
         if: runner.os == 'Windows'
-        run: npm --prefix apps/desktop run tauri -- build -- --no-bundle
+        run: npm run tauri:build --prefix apps/desktop
 
   package-windows-preview:
     name: Package Windows developer preview
