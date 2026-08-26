@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SystemDiff">
+  <rect width="512" height="512" rx="104" fill="#176fca"/>
+  <path d="M112 128h120v112H112zM280 128h120v112H280z" fill="#fff" opacity=".96"/>
+  <path d="M112 288h120v96H112z" fill="#fff" opacity=".62"/>
+  <path d="M280 288h120v96H280z" fill="#fff" opacity=".96"/>
+  <path d="M248 108h16v296h-16z" fill="#0d4f91" opacity=".72"/>
+</svg>

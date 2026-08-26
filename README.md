@@ -11,13 +11,13 @@
 SystemDiff takes a before Snapshot and an after Snapshot, then explains the evidence that changed. It is for questions like: “I installed this program—what startup entries or Windows services did it change?”
 
 > [!IMPORTANT]
-> SystemDiff is pre-release software. Today it captures and compares the documented Windows Registry Run/RunOnce startup locations and Windows service configuration visible to the current token. An unsigned, short-lived Windows x64 Developer Preview is available from eligible CI runs, but there is no official binary Release. Scheduled Tasks, rules, redaction, releases, and the desktop app are not implemented.
+> SystemDiff is pre-release software. Today it captures and compares the documented Windows Registry Run/RunOnce startup locations and Windows service configuration visible to the current token. The first guided desktop workflow can be built from source for development, and an unsigned, short-lived Windows x64 CLI Developer Preview is available from eligible CI runs. There is no official binary Release. Scheduled Tasks, rules, redaction, and desktop distribution are not implemented.
 
-[Try the sample](#try-the-registry-demo) · [Developer Preview builds](#developer-preview-builds) · [Build from source](#build-from-source) · [Inspect the data format](docs/data-format.md)
+[See the desktop workflow](#desktop-development-build) · [Try the sample](#try-the-registry-demo) · [CLI Developer Preview](#cli-developer-preview-builds) · [Build from source](#build-from-source)
 
-![SystemDiff showing one synthetic Registry startup entry added](docs/assets/registry-startup-demo.svg)
+![SystemDiff Desktop showing one real synthetic Registry startup change](docs/assets/systemdiff-desktop-results.jpg)
 
-_Verified output from the committed synthetic Registry-only fixtures. No real host data is shown._
+_A real Windows desktop dogfood run: SystemDiff captured before and after a guarded synthetic `HKCU` Run change, classified exactly one Added startup entry, and verified exact-data cleanup. No personal host evidence is shown._
 
 ## Available today
 
@@ -27,12 +27,26 @@ _Verified output from the committed synthetic Registry-only fixtures. No real ho
 | Human-readable, technical, and deterministic JSON Diff output | Implemented |
 | Coverage-aware comparison that does not turn missing evidence into a false removal | Implemented |
 | Capture current-token-visible Windows service configuration (drivers excluded) | Implemented with conservative partial coverage |
+| Guided Start capture → Finish & compare desktop workflow | Implemented as a source-built development app |
 | Scheduled Tasks Collector | Planned; not implemented |
 | Rules, signatures, risk classification, and redacted sharing | Planned; not implemented |
 
 SystemDiff reports facts such as “Added to current-user startup.” It does not currently decide whether an entry is malicious, safe, signed, or worthy of removal.
 
-## Developer Preview builds
+## Desktop development build
+
+The first desktop vertical slice reuses the same Rust Collectors, Diff engine, and report semantics as the CLI. It guides a user through one local session, shows calm grouped results for Startup and Windows Services, preserves incomplete coverage as Inconclusive, and offers exact technical details on demand. English (`en-US`) and Simplified Chinese (`zh-CN`) are included.
+
+It is intentionally a development app, not a distributed product build: there is no installer, signed executable, desktop Actions artifact, update mechanism, history, file import, or clean-machine WebView2 bootstrap yet. It requires an installed WebView2 Runtime and the source-build prerequisites in [apps/desktop/README.md](apps/desktop/README.md).
+
+```powershell
+npm ci --prefix apps/desktop
+npm --prefix apps/desktop run tauri -- dev
+```
+
+The app stores temporary unredacted before/after evidence under its backend-owned local session directory and removes verified session files after finish, cancel, a new capture, or a stable normal exit. It does not expose paths to the web frontend or add Registry/service write capability. Exiting during an in-flight native capture, a cleanup failure, or a crash can leave sensitive local evidence for conservative startup recovery; Results then surface a cleanup warning when the process is still running. This is not yet a shareable-report workflow.
+
+## CLI Developer Preview builds
 
 Successful `main` CI runs attach `systemdiff-windows-x86_64-developer-preview` for 14 days. This is an ephemeral GitHub Actions artifact, not a GitHub Release or a supported version. To get it:
 
@@ -53,7 +67,11 @@ With a stable Rust MSVC toolchain installed:
 cargo run --locked --quiet -p systemdiff-cli -- diff fixtures/snapshots/registry-before-v1.json fixtures/snapshots/registry-after-v1.json
 ```
 
-The sample contains one synthetic `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` addition. It is the same output shown above and is fixed by a regression test.
+The sample contains one synthetic `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` addition and is fixed by a regression test.
+
+![SystemDiff CLI showing one synthetic Registry startup entry added](docs/assets/registry-startup-demo.svg)
+
+_Verified output from the committed Registry-only fixtures. No real host data is shown._
 
 The three report modes serve different needs:
 
@@ -111,11 +129,11 @@ cargo test --locked --workspace --all-targets
 cargo run --locked -p systemdiff-cli -- collectors
 ```
 
-There is no official binary Release yet. The CI Developer Preview above is unsigned and temporary. The existing synthetic HKCU write-based E2E harness is test-only, requires two explicit gates, refuses to overwrite an existing value, performs exact-data guarded cleanup, and is not run by default CI.
+There is no official binary Release yet. The CI CLI Developer Preview above is unsigned and temporary. The existing synthetic HKCU write-based E2E harnesses are test-only, require explicit gates, refuse to overwrite an existing value, perform exact-data guarded cleanup, and are not run by default CI.
 
 ## Architecture and roadmap
 
-The Rust workspace separates versioned domain data, Windows API access, deterministic Diff, rules, reporting, and CLI composition. The future desktop client is proposed to reuse the same core; no Tauri application has been generated.
+The Rust workspace separates versioned domain data, Windows API access, deterministic Diff, rules, reporting, and CLI composition. The Tauri 2 desktop development app reuses those crates through a narrow Rust-owned session and presentation boundary; React handles localization and layout without reclassifying evidence.
 
 Registry startup and Windows Services are the first two completed vertical slices, not the finished v0.1. See the [Collector notes](docs/collectors.md) and [roadmap](docs/roadmap.md) for current boundaries.
 

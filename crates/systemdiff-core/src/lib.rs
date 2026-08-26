@@ -647,7 +647,9 @@ fn decode_utf16le_hex(encoded: &str) -> Option<Vec<u16>> {
     }
     encoded
         .as_bytes()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|chunk| {
             let low = (hex_nibble(chunk[0])? << 4) | hex_nibble(chunk[1])?;
             let high = (hex_nibble(chunk[2])? << 4) | hex_nibble(chunk[3])?;

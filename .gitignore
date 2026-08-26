@@ -18,6 +18,7 @@ pnpm-debug.log*
 
 # Tauri local output
 **/.tauri/
+apps/desktop/src-tauri/gen/schemas/
 
 # Editors and IDEs
 .idea/

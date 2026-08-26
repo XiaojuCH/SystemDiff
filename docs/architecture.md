@@ -20,10 +20,11 @@ flowchart LR
     REPORT --> CLI["systemdiff-cli"]
     CORE --> CLI
     WIN --> CLI
-    GUI["Future Tauri desktop"] --> CORE
-    GUI --> DIFF
-    GUI --> RISK
-    GUI --> REPORT
+    UI["React / TypeScript"] --> SESSION["Tauri desktop session"]
+    SESSION --> WIN
+    SESSION --> DIFF
+    DIFF --> REPORT
+    REPORT --> SESSION
 ```
 
 Dependencies point inward toward stable evidence types. The core does not know about Win32, Tauri, React, terminal styling, or files on disk.
@@ -36,9 +37,9 @@ Dependencies point inward toward stable evidence types. The core does not know a
 | `systemdiff-windows` | Win32/COM adapters, Windows normalization, collector implementations | Diff judgments, localized explanations, remediation |
 | `systemdiff-diff` | Pure deterministic comparison and compatibility/coverage semantics | OS access, file I/O, risk classification |
 | `systemdiff-risk` | Rule contract and findings that reference changes/evidence | Evidence mutation, GUI rendering, OS access |
-| `systemdiff-report` | JSON and human-readable rendering to an output stream | Collection, platform calls, opening arbitrary files |
+| `systemdiff-report` | JSON and human-readable rendering plus a locale-neutral desktop presentation DTO | Collection, platform calls, opening arbitrary files |
 | `systemdiff-cli` | Arguments, file I/O, exit codes, composition | Domain or collector business logic |
-| `apps/desktop` | Future localized interaction and evidence inspection | A second core, direct Win32 calls, hidden evidence |
+| `apps/desktop` | Ephemeral guided capture session, narrow Tauri IPC, localized interaction, and evidence inspection | A second core, frontend paths/JSON, direct Win32 logic, evidence classification |
 
 These are source boundaries, not a commitment to a dynamic plugin ABI. Out-of-process collectors, a general event bus, an async runtime, and a dependency-injection framework are intentionally absent.
 
@@ -109,6 +110,14 @@ Reports support three deliberately separate views over the same typed evidence:
 
 The human renderer consumes a `DiffDocument`. The technical renderer also receives the two already validated source Snapshots because Collector versions and scoped diagnostics are Snapshot evidence and are intentionally not duplicated into Diff v1. The CLI only selects a renderer; presentation stays in `systemdiff-report`. Terminal renderers escape control characters from untrusted observed strings and do not rely on color or ANSI formatting. Renderers do not rescan the system, execute evidence, or open arbitrary files.
 
+The desktop uses a separate locale-neutral presentation contract from the same crate. Rust maps typed Registry/service evidence into fixed `startup` and `windows_services` groups, determines change kinds and changed service fields, counts confirmed versus inconclusive changes, and emits stable message/field identifiers. The WebView translates those identifiers and lays out already-classified values; it never receives a Snapshot or Diff document to reinterpret. Exact technical text is generated in Rust from the validated before/after Snapshots and retained in memory for on-demand disclosure.
+
+### Desktop session
+
+The desktop session is an application orchestration boundary, not a new evidence schema. One backend-authoritative state machine moves through Ready, Starting, Capturing, Finishing, and Results. Synchronous Win32 collection runs in Tauri's blocking executor, while Rust transitions state before dispatch so duplicate frontend calls cannot start concurrent captures.
+
+Before/after Snapshot documents are ephemeral implementation evidence. They are written with the same 64 MiB ceiling under a backend-selected application-local root, use collision-safe create-new files, and are removed after compare, cancel, or a stable normal exit. A process-lifetime advisory lock prevents a second app instance from recovering an active session. Startup recovery considers only direct child directories with the exact SystemDiff session name, ownership marker, allowlisted entries, path containment, and non-reparse-point checks; it never recursively removes an arbitrary path. In-flight native work cannot be interrupted safely, so exit during that state defers exact cleanup to recovery rather than claiming success. Session paths are never sent to or accepted from React. Results retain only the presentation DTO and technical text in memory; there is no history database.
+
 ## Windows collection strategy
 
 Windows collection uses Unicode platform APIs through narrowly feature-gated `windows-rs` bindings:
@@ -123,7 +132,7 @@ Windows code is the only production area expected to require `unsafe`. Every uns
 
 ## Privilege and process boundaries
 
-The default process uses the current user token. Elevation is not an all-or-nothing mode: each collector/scope reports what it could observe. A future GUI must make elevation explicit and must not expose generic shell, filesystem, or process-execution commands to the WebView.
+The default process uses the current user token. Elevation is not an all-or-nothing mode: each collector/scope reports what it could observe. The desktop uses `asInvoker`, never requests elevation, and exposes no generic shell, filesystem, network, or process-execution command to the WebView.
 
 The Tauri core process is privileged relative to its WebView. IPC commands must be narrow, typed, and least-privilege. The frontend receives only the evidence necessary for the active view; secrets or platform handles never live in frontend state.
 
@@ -135,7 +144,7 @@ The MVP avoids collecting hostname or stable machine identifiers because the fir
 
 ## Localization
 
-Core and JSON fields are language-neutral. Findings carry explanation keys and structured parameters. The future desktop UI loads locale resources for `en-US` and `zh-CN`; business logic contains no hard-coded end-user prose.
+Core and JSON fields are language-neutral. Findings carry explanation keys and structured parameters. The desktop presentation contract also uses stable language-neutral message and field identifiers. React loads typed `en-US` and `zh-CN` dictionaries, selects Chinese for a `zh*` browser/Windows language, formats ordinary timestamps in the user's locale, and leaves observed Registry/service evidence untranslated. Raw UTC remains available in technical details.
 
 ## Dependency policy
 
@@ -150,8 +159,8 @@ Important choices were checked on 2026-08-11. Re-evaluate them when introduced o
 | `windows-rs` | Microsoft-maintained and active; Apache-2.0 OR MIT; [official repository](https://github.com/microsoft/windows-rs) | Accepted in `systemdiff-windows`; only required Win32 feature families are enabled and unsafe calls remain behind narrow adapters |
 | `windows-version` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/microsoft/windows-rs) | Accepted for the documented Windows 10/Server version 1709 minimum check without shelling out or parsing localized output |
 | `clap` | Active; Apache-2.0 OR MIT; [official repository](https://github.com/clap-rs/clap) | Accepted at the CLI boundary only |
-| Tauri 2 | Active; Apache-2.0 OR MIT; requires C++ Build Tools and WebView2 on Windows; [prerequisites](https://v2.tauri.app/start/prerequisites/) | Proposed for v0.2; excluded from v0.1 build until a security-focused spike |
-| React / TypeScript / Vite | Active; permissive licenses; frontend support windows require regular upgrades | Proposed with Tauri; lockfile and dependency audit required when introduced |
+| Tauri 2.11 | Active; Apache-2.0 OR MIT; requires C++ Build Tools and WebView2 on Windows; [prerequisites](https://v2.tauri.app/start/prerequisites/) | Accepted with bundled local content, explicit CSP/capabilities, no privileged plugins, and a separate desktop Cargo lockfile |
+| React 19 / TypeScript 6 / Vite 8 | Active; permissive licenses; frontend support windows require regular upgrades | Accepted for the small localized desktop view with exact npm locking; no router, global state, design-system, or general i18n framework |
 
 Do not introduce Tokio/`async-trait`, a database, network client, telemetry SDK, generic shell plugin, or schema generator at runtime without a demonstrated requirement. A build-time JSON Schema generator may be evaluated before v0.1.
 
@@ -164,7 +173,11 @@ Do not introduce Tokio/`async-trait`, a database, network client, telemetry SDK,
 - Windows adapter tests isolate buffer parsing, normalization, and API error mapping.
 - Default CI never writes real Run keys, services, or tasks and never requires elevation.
 - The write-capable HKCU Registry E2E is a separate test-only PowerShell harness with two explicit gates, exact-data guarded cleanup, no administrator requirement, and no link into production CLI/API code.
+- Desktop CI separately runs locked npm install, TypeScript checking, ESLint, Vite production build, desktop Rust fmt/Clippy/tests on Windows and Ubuntu, and a Windows Tauri no-bundle build. It does not publish a desktop release artifact.
+- Desktop Rust tests use injected synthetic Snapshots for state, failure, cleanup, presentation, and coverage behavior. The guarded real desktop dogfood mutation remains opt-in and outside default CI.
 
 ## Desktop decision
 
-Tauri's process model keeps Rust core/IPC separate from the system WebView and is materially lighter than duplicating the core in a web service. Its security still depends on narrow capabilities and safe Rust commands. The desktop choice remains `Proposed` until the CLI pipeline works and a spike verifies IPC, localization, packaging, WebView2 behavior, and dependency audit results.
+Tauri's process model keeps Rust core/IPC separate from the system WebView and is materially lighter than duplicating the core in a web service. ADR 0003 is accepted after the focused spike verified the in-process Rust boundary, local-only content, narrow command/capability model, bilingual DTO, and current Windows development prerequisites.
+
+Microsoft documents WebView2 support on Windows 10 SAC 1709 and later, but the Runtime is normally preinstalled only on Windows 10 1803 and later. The development application therefore requires an installed Evergreen Runtime. A Tauri `--no-bundle` executable is not claimed as a clean-machine portable release; missing-Runtime handling, installer/bootstrap choice, signing, and full baseline validation remain release work.
